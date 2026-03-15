@@ -1,0 +1,26 @@
+# Rust / Cargo
+**/target/
+aimp_state/
+**/*.rs.bk
+Cargo.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv
+venv/
+ENV/
+env/
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# AIMP Logs / Temp
+*.log
+MISSION_LOG.json
+/tmp/aimp_*
