@@ -10,21 +10,12 @@ if [ -z "$1" ]; then
 fi
 
 NEW_VERSION=$1
-DATE=$(date +%Y-%m-%d)
 
-echo "🚀 Updating AIMP to version $NEW_VERSION..."
+echo "Updating AIMP to version $NEW_VERSION..."
 
-# 1. Update Cargo.toml
 sed -i '' "s/^version = \".*\"/version = \"$NEW_VERSION\"/" aimp_node/Cargo.toml
-
-# 2. Update README.md header
 sed -i '' "s/# AIMP (AI Mesh Protocol) v.*/# AIMP (AI Mesh Protocol) v$NEW_VERSION/" README.md
+sed -i '' "s/__version__ = \".*\"/__version__ = \"$NEW_VERSION\"/" aimp_testbed/aimp_client/__init__.py
+sed -i '' "s/version=\".*\"/version=\"$NEW_VERSION\"/" aimp_testbed/setup.py
 
-# 3. Update SPEC.md header
-sed -i '' "s/# AIMP v.* Protocol Specification/# AIMP v$NEW_VERSION Protocol Specification/" SPEC.md
-
-# 4. Update CHANGELOG.md (Add new entry if needed or update latest)
-# For now, we update the [Unreleased] or the latest version block
-sed -i '' "s/## \[.*\] - .*/## \[$NEW_VERSION\] - $DATE/" CHANGELOG.md
-
-echo "✅ AIMP version synchronized to $NEW_VERSION"
+echo "AIMP version synchronized to $NEW_VERSION"

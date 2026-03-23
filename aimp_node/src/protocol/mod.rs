@@ -1,5 +1,5 @@
-pub mod envelope;
 pub mod de_ser;
+pub mod envelope;
 
-pub use envelope::{AimpData, AimpEnvelope, NodeId, Hash32, OpCode};
 pub use de_ser::ProtocolParser;
+pub use envelope::{AimpData, AimpEnvelope, Hash32, NodeId, OpCode, Payload};

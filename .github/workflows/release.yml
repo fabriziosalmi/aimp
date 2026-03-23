@@ -1,0 +1,85 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-edge:
+    name: Build Edge (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            artifact: aimp_node-x86_64-linux
+          - target: aarch64-unknown-linux-musl
+            artifact: aimp_node-aarch64-linux
+          - target: armv7-unknown-linux-musleabihf
+            artifact: aimp_node-armv7-linux
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross
+        run: cargo install cross
+
+      - name: Build static binary
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Package binary
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/aimp_node dist/${{ matrix.artifact }}
+          ls -lh dist/${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/${{ matrix.artifact }}
+
+  release:
+    name: Create Release
+    needs: build-edge
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            ## Edge Deployment
+
+            Download the binary for your architecture and deploy:
+            ```bash
+            chmod +x aimp_node-*-linux
+            sudo ./deploy/install.sh ./aimp_node-aarch64-linux
+            sudo systemctl start aimp-node
+            ```
+
+            | Binary | Architecture | Devices |
+            |--------|-------------|---------|
+            | `aimp_node-x86_64-linux` | x86_64 | Edge gateways, servers |
+            | `aimp_node-aarch64-linux` | ARM64 | RPi 4/5, Jetson, AWS Graviton |
+            | `aimp_node-armv7-linux` | ARMv7 | RPi 2/3, industrial PLCs |
+
+            All binaries are **statically linked** (musl) — zero runtime dependencies.

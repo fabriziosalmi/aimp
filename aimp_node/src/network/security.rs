@@ -1,21 +1,31 @@
-use snow::{Builder, HandshakeState, TransportState};
+use crate::config;
 use crate::crypto::Identity;
-use std::net::SocketAddr;
+use snow::{Builder, HandshakeState, TransportState};
 use std::collections::HashMap;
-use tokio::sync::RwLock;
+use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Instant;
+use tokio::sync::RwLock;
 
+/// State machine for a Noise Protocol XX session with a single peer.
 pub enum SecureState {
-    Handshaking(HandshakeState),
+    Handshaking(Box<HandshakeState>),
     Active(TransportState),
     Invalid,
 }
 
+/// A Noise Protocol XX session with a specific peer, tracking handshake or transport state.
 pub struct SecureSession {
     pub state: SecureState,
     pub peer_addr: SocketAddr,
+    /// Last time this session was used (for LRU eviction).
+    pub last_used: Instant,
 }
 
+/// Manages Noise Protocol XX sessions for all connected peers.
+///
+/// Sessions are evicted when the count exceeds `SESSION_MAX_COUNT` or
+/// when a session has been idle longer than `SESSION_TTL_SECS`.
 pub struct SessionManager {
     identity: Arc<Identity>,
     sessions: Arc<RwLock<HashMap<SocketAddr, SecureSession>>>,
@@ -29,14 +39,44 @@ impl SessionManager {
         }
     }
 
+    /// Evict sessions that are expired or over capacity.
+    /// Must be called while holding the write lock (sessions passed by ref).
+    fn evict_stale(sessions: &mut HashMap<SocketAddr, SecureSession>) {
+        let now = Instant::now();
+        let ttl = std::time::Duration::from_secs(config::SESSION_TTL_SECS);
+
+        // Remove expired sessions and invalid sessions
+        sessions.retain(|_, s| {
+            now.duration_since(s.last_used) < ttl && !matches!(s.state, SecureState::Invalid)
+        });
+
+        // If still over capacity, remove oldest sessions
+        while sessions.len() > config::SESSION_MAX_COUNT {
+            let oldest = sessions
+                .iter()
+                .min_by_key(|(_, s)| s.last_used)
+                .map(|(addr, _)| *addr);
+
+            if let Some(addr) = oldest {
+                sessions.remove(&addr);
+            } else {
+                break;
+            }
+        }
+    }
+
     /// Prepares an encrypted message for a peer.
     /// If no session exists, it returns a handshake initiator message.
     pub async fn wrap(&self, peer: SocketAddr, payload: &[u8]) -> (Vec<u8>, bool) {
         let mut sessions = self.sessions.write().await;
-        
-        let session = sessions.entry(peer).or_insert_with(|| {
-            SecureSession::new_initiator(&self.identity, peer)
-        });
+
+        Self::evict_stale(&mut sessions);
+
+        let session = sessions
+            .entry(peer)
+            .or_insert_with(|| SecureSession::new_initiator(&self.identity, peer));
+
+        session.last_used = Instant::now();
 
         match &mut session.state {
             SecureState::Active(transport) => {
@@ -63,20 +103,26 @@ impl SessionManager {
     /// Returns Some(decrypted_payload) if it was a data message or a successful handshake.
     pub async fn unwrap(&self, peer: SocketAddr, payload: &[u8]) -> Option<Vec<u8>> {
         let mut sessions = self.sessions.write().await;
-        
-        let session = sessions.entry(peer).or_insert_with(|| {
-            SecureSession::new_responder(&self.identity, peer)
-        });
+
+        Self::evict_stale(&mut sessions);
+
+        let session = sessions
+            .entry(peer)
+            .or_insert_with(|| SecureSession::new_responder(&self.identity, peer));
+
+        session.last_used = Instant::now();
 
         match &mut session.state {
             SecureState::Handshaking(handshake) => {
                 let mut buf = vec![0u8; 1024];
                 if let Ok(n) = handshake.read_message(payload, &mut buf) {
                     if handshake.is_handshake_finished() {
-                        // Transition to Active mode
-                        if let SecureState::Handshaking(hs) = std::mem::replace(&mut session.state, SecureState::Invalid) {
-                            let transport = hs.into_transport_mode().unwrap();
-                            session.state = SecureState::Active(transport);
+                        if let SecureState::Handshaking(hs) =
+                            std::mem::replace(&mut session.state, SecureState::Invalid)
+                        {
+                            if let Ok(transport) = (*hs).into_transport_mode() {
+                                session.state = SecureState::Active(transport);
+                            }
                         }
                     }
                     return Some(buf[..n].to_vec());
@@ -104,10 +150,11 @@ impl SecureSession {
             .local_private_key(&static_key)
             .build_initiator()
             .unwrap();
-        
+
         Self {
-            state: SecureState::Handshaking(handshake),
+            state: SecureState::Handshaking(Box::new(handshake)),
             peer_addr,
+            last_used: Instant::now(),
         }
     }
 
@@ -118,10 +165,11 @@ impl SecureSession {
             .local_private_key(&static_key)
             .build_responder()
             .unwrap();
-            
+
         Self {
-            state: SecureState::Handshaking(handshake),
+            state: SecureState::Handshaking(Box::new(handshake)),
             peer_addr,
+            last_used: Instant::now(),
         }
     }
 }

@@ -20,7 +20,11 @@ env/
 *.swp
 *.swo
 
+# Build artifacts
+dist/
+
 # AIMP Logs / Temp
 *.log
 MISSION_LOG.json
 /tmp/aimp_*
+TODO.md

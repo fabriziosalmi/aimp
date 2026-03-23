@@ -1,21 +1,26 @@
-use ratatui::{
-    backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
-    widgets::{Block, Borders, Paragraph, Gauge},
-    Terminal,
-};
+use crate::config;
+use crate::crdt::CrdtHandle;
+use crate::event::SystemEvent;
 use crossterm::{
     event::{self, Event, KeyCode},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use ratatui::{
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
+    widgets::{Block, Borders, Gauge, Paragraph},
+    Terminal,
+};
 use std::io;
 use tokio::sync::mpsc;
-use crate::crdt::CrdtHandle;
-use crate::event::SystemEvent;
-use crate::config;
 
+/// TUI dashboard for real-time AIMP node monitoring.
+///
+/// Displays the current Merkle root, system event log, and AI audit trail.
+/// The Merkle root is refreshed asynchronously via a background task to
+/// avoid blocking the UI render loop.
 pub struct Dashboard {
     pub node_id: String,
     pub crdt_handle: CrdtHandle,
@@ -24,10 +29,14 @@ pub struct Dashboard {
 }
 
 impl Dashboard {
-    pub fn new(node_id: String, crdt_handle: CrdtHandle, log_rx: mpsc::Receiver<SystemEvent>) -> Self {
-        Self { 
-            node_id, 
-            crdt_handle, 
+    pub fn new(
+        node_id: String,
+        crdt_handle: CrdtHandle,
+        log_rx: mpsc::Receiver<SystemEvent>,
+    ) -> Self {
+        Self {
+            node_id,
+            crdt_handle,
             log_rx,
             logs: Vec::new(),
         }
@@ -40,6 +49,29 @@ impl Dashboard {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend)?;
 
+        // Async merkle root: background task sends updates through a channel
+        let (root_tx, mut root_rx) = mpsc::channel::<String>(1);
+        let crdt_handle = self.crdt_handle.clone();
+
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+
+            rt.block_on(async move {
+                loop {
+                    let root = crdt_handle.get_merkle_root().await;
+                    let hex = hex::encode(root);
+                    // If the channel is full, skip this update (non-blocking)
+                    let _ = root_tx.try_send(hex);
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+            });
+        });
+
+        let mut cached_root = "computing...".to_string();
+
         loop {
             // Drain logs
             while let Ok(log) = self.log_rx.try_recv() {
@@ -49,7 +81,12 @@ impl Dashboard {
                 }
             }
 
-            terminal.draw(|f| self.ui(f))?;
+            // Update cached merkle root if a new value is available (non-blocking)
+            if let Ok(new_root) = root_rx.try_recv() {
+                cached_root = new_root;
+            }
+
+            terminal.draw(|f| self.ui(f, &cached_root))?;
 
             if event::poll(std::time::Duration::from_millis(100))? {
                 if let Event::Key(key) = event::read()? {
@@ -67,7 +104,7 @@ impl Dashboard {
         Ok(())
     }
 
-    fn ui(&self, f: &mut ratatui::Frame) {
+    fn ui(&self, f: &mut ratatui::Frame, merkle_root: &str) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
@@ -82,9 +119,17 @@ impl Dashboard {
             .split(f.size());
 
         // 1. Header
-        let header = Paragraph::new(format!(" AIMP Core v{} | Node: {} | Press 'q' to exit", env!("CARGO_PKG_VERSION"), self.node_id))
-            .style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
-            .block(Block::default().borders(Borders::ALL).title(" STATUS "));
+        let header = Paragraph::new(format!(
+            " AIMP Core v{} | Node: {} | Press 'q' to exit",
+            env!("CARGO_PKG_VERSION"),
+            self.node_id
+        ))
+        .style(
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        )
+        .block(Block::default().borders(Borders::ALL).title(" STATUS "));
         f.render_widget(header, chunks[0]);
 
         // 2. Main Content
@@ -97,9 +142,6 @@ impl Dashboard {
             .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(60), Constraint::Percentage(40)].as_ref())
             .split(main_chunks[1]);
-
-        // Get Root Hash via Actor (Blocking for UI)
-        let merkle_root = hex::encode(futures::executor::block_on(self.crdt_handle.get_merkle_root()));
 
         let stats_text = format!(
             "\n DAG METRICS:\n\n - ROOT HASH:\n   {}\n\n - NODE STATE: ACTIVE\n - ACTOR MODE: SYNC_PASS",
@@ -120,33 +162,47 @@ impl Dashboard {
             s
         };
 
-        let telemetry = Paragraph::new(log_content)
-            .block(Block::default().borders(Borders::ALL).title(" NETWORK LOG "));
+        let telemetry = Paragraph::new(log_content).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" NETWORK LOG "),
+        );
         f.render_widget(telemetry, right_chunks[0]);
 
-        // 4. Audit Trail (v0.4.0)
-        let audit_logs: Vec<String> = self.logs.iter()
+        // 4. Audit Trail
+        let audit_logs: Vec<String> = self
+            .logs
+            .iter()
             .filter(|l| matches!(l, SystemEvent::AiInference { .. }))
             .map(|l| format!("> {}", l.to_display()))
             .collect();
-            
+
         let audit_content = if audit_logs.is_empty() {
             "\n No verified AI decisions yet.".to_string()
         } else {
             audit_logs.join("\n")
         };
 
-        let audit_block = Paragraph::new(audit_content)
-            .block(Block::default()
+        let audit_block = Paragraph::new(audit_content).block(
+            Block::default()
                 .borders(Borders::ALL)
                 .title(" AUDIT TRAIL [Edge-BFT] ")
-                .border_style(Style::default().fg(Color::Yellow)));
+                .border_style(Style::default().fg(Color::Yellow)),
+        );
         f.render_widget(audit_block, right_chunks[1]);
 
-        // 4. Footer
+        // 5. Footer
         let gauge = Gauge::default()
-            .block(Block::default().borders(Borders::ALL).title(" NETWORK CONVERGENCE "))
-            .gauge_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(" NETWORK CONVERGENCE "),
+            )
+            .gauge_style(
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            )
             .percent(100);
         f.render_widget(gauge, chunks[2]);
     }

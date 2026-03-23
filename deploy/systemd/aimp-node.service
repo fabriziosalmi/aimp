@@ -1,0 +1,55 @@
+[Unit]
+Description=AIMP Mesh Node — AI Mesh Protocol daemon
+Documentation=https://github.com/fabriziosalmi/aix
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aimp
+Group=aimp
+
+# Binary location (cross-compiled static binary)
+ExecStart=/usr/local/bin/aimp_node --port 1337 --name %H
+
+# Working directory for persistent state (redb) and rules
+WorkingDirectory=/var/lib/aimp
+StateDirectory=aimp
+
+# Environment-based configuration (overrides aimp.toml defaults)
+EnvironmentFile=-/etc/aimp/aimp.env
+
+# Graceful shutdown: send SIGTERM, wait 10s, then SIGKILL
+KillSignal=SIGTERM
+TimeoutStopSec=10
+
+# Restart on failure with exponential backoff
+Restart=on-failure
+RestartSec=2
+RestartMaxDelaySec=60
+
+# Security hardening — minimize attack surface
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ReadWritePaths=/var/lib/aimp
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+# Resource limits for edge devices
+LimitNOFILE=4096
+MemoryMax=128M
+CPUQuota=80%
+
+# Logging to journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aimp-node
+
+[Install]
+WantedBy=multi-user.target

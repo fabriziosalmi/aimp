@@ -1,6 +1,6 @@
 [package]
 name = "aimp_node"
-version = "0.4.0"
+version = "0.1.0"
 edition = "2021"
 authors = ["AIMP Protocol Contributors"]
 description = "Reference implementation of the AI Mesh Protocol (Merkle-CRDT, Epoch GC)"
@@ -21,6 +21,8 @@ serde_bytes = "0.11"    # Force Bin format for [u8; N]
 ed25519-dalek = { version = "2.1", features = ["rand_core", "serde"] }
 x25519-dalek = { version = "2.0", features = ["static_secrets"] }
 chacha20poly1305 = "0.10"
+hkdf = "0.12"
+sha2 = "0.10"
 rand = "0.8"
 blake3 = "1.5"
 
@@ -33,7 +35,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 dashmap = "5.5"         # Blazing fast concurrent HashMap for CRDT state
 bytes = "1.5"           # Zero-alloc byte manipulation for the UDP hot-path
 slab = "0.4"            # Pre-allocated memory for high-frequency nodes
-sled = "0.34"           # High-performance embedded database for durability
+redb = "2.4"            # Actively maintained embedded database for durability
 
 # 7. UTILITY
 hex = "0.4"
@@ -49,4 +51,9 @@ config = "0.13"         # Dynamic configuration
 snow = "0.9"            # Noise Protocol for encrypted hot-path
 
 [dev-dependencies]
-proptest = "1.4"        # For property-based stress testing
+proptest = "1.4"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "core"
+harness = false

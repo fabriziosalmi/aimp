@@ -1,7 +1,7 @@
 use super::envelope::AimpEnvelope;
 use thiserror::Error;
 
-/// Strict Custom Error handling replacing `.unwrap()`
+/// Errors from MessagePack serialization/deserialization.
 #[derive(Error, Debug)]
 pub enum ParserError {
     #[error("MessagePack Encode Error: {0}")]
@@ -12,31 +12,42 @@ pub enum ParserError {
     InvalidSize,
 }
 
-/// Zero-copy oriented serialization abstraction.
+/// Deterministic MessagePack serialization for the AIMP wire protocol.
+///
+/// Ensures identical byte output across all architectures by using
+/// deterministic `rmp_serde` encoding with a protocol version guard.
 pub struct ProtocolParser;
 
 impl ProtocolParser {
-    /// Compresses the Envelope into raw binary (MessagePack) for UDP payload.
-    /// Strict determinism ensures identical output byte streams.
+    /// Serialize an envelope into MessagePack binary for UDP transmission.
     pub fn to_bytes(envelope: &AimpEnvelope) -> Result<Vec<u8>, ParserError> {
         let bytes = rmp_serde::to_vec(envelope)?;
         Ok(bytes)
     }
 
-    /// Decompresses the raw slice received from the network socket into the Rust Struct.
-    /// This is the first level of parsing before the Crypto Firewall.
+    /// Deserialize raw bytes into an envelope, with protocol version validation.
     pub fn from_bytes(bytes: &[u8]) -> Result<AimpEnvelope, ParserError> {
         if bytes.is_empty() {
             return Err(ParserError::InvalidSize);
         }
         let env: AimpEnvelope = rmp_serde::from_slice(bytes)?;
-        
-        // SOTA: Schema Evolution Guard
-        if env.data.v != crate::config::PROTOCOL_VERSION {
+
+        // Accept current version and any version >= MIN_PROTOCOL_VERSION
+        // to support rolling upgrades across the mesh.
+        if env.data.v < crate::config::MIN_PROTOCOL_VERSION
+            || env.data.v > crate::config::PROTOCOL_VERSION
+        {
             use serde::de::Error;
-            return Err(ParserError::DecodeFail(rmp_serde::decode::Error::custom("Unsupported Protocol Version")));
+            return Err(ParserError::DecodeFail(rmp_serde::decode::Error::custom(
+                format!(
+                    "Unsupported Protocol Version: {} (accepted: {}-{})",
+                    env.data.v,
+                    crate::config::MIN_PROTOCOL_VERSION,
+                    crate::config::PROTOCOL_VERSION
+                ),
+            )));
         }
-        
+
         Ok(env)
     }
 }

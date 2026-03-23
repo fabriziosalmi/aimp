@@ -1,9 +1,10 @@
-use std::collections::BTreeMap;
-use tokio::sync::{mpsc, oneshot};
-use crate::protocol::Hash32;
+use crate::crdt::gc::EpochManager;
 use crate::crdt::merkle_dag::{DagNode, MerkleCrdtEngine};
 use crate::crdt::PersistentStore;
 use crate::event::metrics::GLOBAL_METRICS;
+use crate::protocol::Hash32;
+use std::collections::BTreeMap;
+use tokio::sync::{mpsc, oneshot};
 
 /// Messages handled by the CrdtActor
 #[derive(Debug)]
@@ -22,9 +23,7 @@ pub enum CrdtMsg {
         resp: oneshot::Sender<usize>, // Returns number of new nodes added
     },
     /// Request the current Merkle Root
-    GetRoot {
-        resp: oneshot::Sender<Hash32>,
-    },
+    GetRoot { resp: oneshot::Sender<Hash32> },
     /// Get nodes for synchronization (Delta-Sync)
     GetDiff {
         remote_heads: Vec<Hash32>,
@@ -35,32 +34,44 @@ pub enum CrdtMsg {
 pub struct CrdtActor {
     engine: MerkleCrdtEngine,
     quorum: crate::crdt::QuorumManager,
+    epochs: EpochManager,
     receiver: mpsc::Receiver<CrdtMsg>,
     log_tx: Option<mpsc::Sender<crate::event::SystemEvent>>,
 }
 
 impl CrdtActor {
-    pub fn new(receiver: mpsc::Receiver<CrdtMsg>, store: Option<PersistentStore>, log_tx: Option<mpsc::Sender<crate::event::SystemEvent>>, threshold: usize) -> Self {
-        let mut engine = MerkleCrdtEngine::new(store);
-        
-        // RECOVERY: If store is present, load all existing nodes
+    pub fn new(
+        receiver: mpsc::Receiver<CrdtMsg>,
+        store: Option<PersistentStore>,
+        log_tx: Option<mpsc::Sender<crate::event::SystemEvent>>,
+        threshold: usize,
+        gc_threshold: u64,
+    ) -> Self {
+        let mut engine = MerkleCrdtEngine::with_gc_threshold(store, gc_threshold);
+
+        // RECOVERY: If store is present, load nodes in batches to avoid OOM
         if let Some(ref s) = engine.store {
-            for (hash, node) in s.load_all() {
-                engine.arena.insert(hash, node);
-                engine.heads.insert(hash); 
-            }
+            s.load_batched(1024, |batch| {
+                for (hash, node) in batch {
+                    engine.arena.insert(hash, node);
+                    engine.heads.insert(hash);
+                }
+            });
             // Recalculate frontier (remove parents that are in the store)
             let mut all_parents = std::collections::HashSet::new();
             for (_, node) in engine.arena.get_all_iter() {
-                for p in &node.parents { all_parents.insert(*p); }
+                for p in &node.parents {
+                    all_parents.insert(*p);
+                }
             }
             engine.heads.retain(|h| !all_parents.contains(h));
-            engine.heads_soa = engine.heads.iter().copied().collect();
+            engine.invalidate_root();
         }
 
         Self {
             engine,
-            quorum: crate::crdt::QuorumManager::new(threshold), 
+            quorum: crate::crdt::QuorumManager::new(threshold),
+            epochs: EpochManager::new(),
             receiver,
             log_tx,
         }
@@ -69,13 +80,29 @@ impl CrdtActor {
     pub async fn run(mut self) {
         while let Some(msg) = self.receiver.recv().await {
             match msg {
-                CrdtMsg::Append { data_hash, signature, vclock, evidence, resp } => {
-                    let hash = self.engine.append_mutation(data_hash, signature, vclock, evidence.clone());
-                    
-                    // Observe own evidence
-                    if let Some(ref _ev) = evidence {
-                         // NodeId is usually handled by Networking, here we use placeholder or actual identity
-                         // For v0.4.0 we'll track locally published evidence as part of the quorum
+                CrdtMsg::Append {
+                    data_hash,
+                    signature,
+                    vclock,
+                    evidence,
+                    resp,
+                } => {
+                    let gc_was_pending = self.engine.mutations_since_gc
+                        >= self.engine.gc_threshold.saturating_sub(1);
+                    let hash =
+                        self.engine
+                            .append_mutation(data_hash, signature, vclock, evidence.clone());
+
+                    // If GC just ran, finalize the epoch with the new root
+                    if gc_was_pending && self.engine.mutations_since_gc == 0 {
+                        let root = self.engine.get_merkle_root();
+                        self.epochs.finalize_epoch(root);
+                        if let Some(ref tx) = self.log_tx {
+                            let _ = tx.try_send(crate::event::SystemEvent::GarbageCollection {
+                                nodes_pruned: 0, // actual count tracked in compact_history
+                                remaining: self.engine.arena.len(),
+                            });
+                        }
                     }
 
                     GLOBAL_METRICS.mutation_count.inc();
@@ -93,19 +120,24 @@ impl CrdtActor {
                             }
                             // Process Evidence for Quorum (v0.4.0)
                             if let Some(ref evidence) = node.evidence {
-                                if self.quorum.observe(node.signature[..32].try_into().unwrap(), evidence) {
+                                if self
+                                    .quorum
+                                    .observe(node.signature[..32].try_into().unwrap(), evidence)
+                                {
                                     if let Some(ref tx) = self.log_tx {
-                                        let _ = tx.try_send(crate::event::SystemEvent::AiInference { 
-                                            prompt: format!("[VERIFIED] {}", evidence.prompt),
-                                            decision: evidence.decision.clone(),
-                                        });
+                                        let _ =
+                                            tx.try_send(crate::event::SystemEvent::AiInference {
+                                                prompt: format!("[VERIFIED] {}", evidence.prompt),
+                                                decision: evidence.decision.clone(),
+                                            });
                                     }
                                 }
                             }
 
                             self.engine.heads.insert(hash);
                             self.engine.arena.insert(hash, node.clone());
-                            
+                            self.engine.invalidate_root();
+
                             // Persist merged node
                             if let Some(ref store) = self.engine.store {
                                 let _ = store.save_node(&hash, &node);
@@ -140,9 +172,24 @@ impl CrdtHandle {
         Self { tx }
     }
 
-    pub async fn append_mutation(&self, data_hash: Hash32, signature: [u8; 64], vclock: BTreeMap<String, u64>, evidence: Option<crate::crdt::merkle_dag::AiEvidence>) -> Hash32 {
+    pub async fn append_mutation(
+        &self,
+        data_hash: Hash32,
+        signature: [u8; 64],
+        vclock: BTreeMap<String, u64>,
+        evidence: Option<crate::crdt::merkle_dag::AiEvidence>,
+    ) -> Hash32 {
         let (tx, rx) = oneshot::channel();
-        let _ = self.tx.send(CrdtMsg::Append { data_hash, signature, vclock, evidence, resp: tx }).await;
+        let _ = self
+            .tx
+            .send(CrdtMsg::Append {
+                data_hash,
+                signature,
+                vclock,
+                evidence,
+                resp: tx,
+            })
+            .await;
         rx.await.expect("Actor died")
     }
 

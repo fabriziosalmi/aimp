@@ -1,5 +1,5 @@
 pub mod identity;
 pub mod verifier;
 
-pub use identity::{Identity, CryptoError};
+pub use identity::{CryptoError, Identity};
 pub use verifier::SecurityFirewall;
