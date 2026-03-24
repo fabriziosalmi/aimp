@@ -80,6 +80,7 @@
       <button class="warn" onclick="toggleOutage()">📡 Toggle WiFi Outage</button>
       <button class="ok"   onclick="syncMaps()">🔄 Sync Occupancy Maps</button>
       <button onclick="addTask()">📦 Add Pick Task</button>
+      <button id="btn-pause" class="warn" onclick="togglePause()">⏸ Pause</button>
       <button class="danger" onclick="reset()">↺ Reset</button>
     </div>
     <div class="panel">
@@ -310,6 +311,24 @@ function renderGrid() {
 
 // Auto-step every 800ms
 let autoInterval = setInterval(()=>{ stepAll(); renderRobots(); },800);
+let paused = false;
+
+function togglePause() {
+  paused = !paused;
+  const btn = document.getElementById('btn-pause');
+  if (paused) {
+    clearInterval(autoInterval);
+    autoInterval = null;
+    btn.textContent = '▶ Resume';
+    btn.className = 'ok';
+    addLog('Simulation paused','info');
+  } else {
+    autoInterval = setInterval(()=>{ stepAll(); renderRobots(); }, 800);
+    btn.textContent = '⏸ Pause';
+    btn.className = 'warn';
+    addLog('Simulation resumed','info');
+  }
+}
 
 initState();
 renderGrid();
