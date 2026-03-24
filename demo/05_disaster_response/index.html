@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIMP Demo 5 — Disaster Response Coordination</title>
+<style>
+  :root {
+    --bg:#0d1117; --surface:#161b22; --border:#30363d;
+    --text:#e6edf3; --muted:#8b949e;
+    --green:#3fb950; --yellow:#d29922; --red:#f85149;
+    --blue:#58a6ff; --purple:#bc8cff; --orange:#f0883e;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font-family:'SF Mono','Fira Code',monospace; font-size:13px; padding:20px; }
+  h1 { color:var(--red); font-size:18px; margin-bottom:4px; }
+  h2 { color:var(--muted); font-size:13px; margin-bottom:16px; font-weight:400; }
+  .layout { display:grid; grid-template-columns:1fr 320px; gap:16px; }
+  canvas { background:var(--surface); border:1px solid var(--border); border-radius:8px; display:block; }
+  .side { display:flex; flex-direction:column; gap:12px; }
+  .panel { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:12px; }
+  .panel h3 { color:var(--muted); font-size:11px; margin-bottom:10px; font-weight:normal; letter-spacing:.05em; text-transform:uppercase; }
+  button {
+    width:100%; background:var(--blue); color:#0d1117; border:none; border-radius:6px;
+    padding:8px 0; cursor:pointer; font-size:12px; font-family:inherit; font-weight:bold;
+    margin-bottom:6px; transition:opacity .15s;
+  }
+  button:hover { opacity:.85; }
+  button.danger { background:var(--red); }
+  button.warn   { background:var(--yellow); }
+  button.ok     { background:var(--green); }
+  #log { max-height:220px; overflow-y:auto; }
+  .log-line { font-size:11px; padding:2px 0; }
+  .log-line.info    { color:var(--muted); }
+  .log-line.merge   { color:var(--green); }
+  .log-line.alert   { color:var(--red); font-weight:bold; }
+  .log-line.deploy  { color:var(--blue); }
+  .legend { display:flex; flex-direction:column; gap:5px; font-size:11px; }
+  .legend-item { display:flex; align-items:center; gap:8px; }
+  .legend-dot { width:12px; height:12px; border-radius:50%; flex-shrink:0; }
+  .stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .stat { background:var(--border); border-radius:4px; padding:6px 8px; }
+  .stat-label { color:var(--muted); font-size:10px; }
+  .stat-value { font-size:14px; font-weight:bold; color:var(--text); }
+  .stat-value.ok  { color:var(--green); }
+  .stat-value.bad { color:var(--red); }
+</style>
+</head>
+<body>
+<h1>🚨 AIMP — Disaster Response Coordination</h1>
+<h2>Demo 5: First-responder teams deploy portable AIMP nodes; data merges as teams enter and leave radio range</h2>
+
+<div class="layout">
+  <div>
+    <canvas id="canvas" width="680" height="500"></canvas>
+  </div>
+  <div class="side">
+    <div class="panel">
+      <h3>Controls</h3>
+      <button onclick="deployTeam()">🚒 Deploy New Team</button>
+      <button class="warn" onclick="toggleZone()">🏚 Toggle Hazard Zone</button>
+      <button class="ok"   onclick="mergeAll()">🔄 Sync All In-Range</button>
+      <button class="danger" onclick="reset()">↺ Reset Scene</button>
+    </div>
+
+    <div class="panel">
+      <h3>Statistics</h3>
+      <div class="stat-grid">
+        <div class="stat"><div class="stat-label">Teams</div><div class="stat-value" id="s-teams">0</div></div>
+        <div class="stat"><div class="stat-label">Synced</div><div class="stat-value ok" id="s-synced">0</div></div>
+        <div class="stat"><div class="stat-label">Reports</div><div class="stat-value" id="s-reports">0</div></div>
+        <div class="stat"><div class="stat-label">Casualties</div><div class="stat-value bad" id="s-casualties">0</div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Legend</h3>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:#58a6ff"></div> Command Node</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#3fb950"></div> Active Team</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#d29922"></div> Team in Hazard Zone</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#f85149"></div> Hazard Zone</div>
+        <div class="legend-item"><div class="legend-dot" style="background:rgba(88,166,255,0.15);border:1px solid #58a6ff"></div> Radio Range</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Event Log</h3>
+      <div id="log"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+// --------------- Simple hash ---------------
+function fnv(str) {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = (h*16777619)>>>0; }
+  return h.toString(16).slice(0,8);
+}
+
+// --------------- State ---------------
+let teams, hazardZone, round, mergeCount, reportCount, casualties;
+
+function mkLog() { return { entries:[], seen:new Set(), root:'00000000' }; }
+function logAppend(log, key, value, nodeId) {
+  const hash = fnv(`${key}:${value}:${nodeId}:${log.entries.length}:${log.root}`);
+  if (log.seen.has(hash)) return;
+  log.seen.add(hash);
+  log.entries.push({ key, value, nodeId, hash, ts: Date.now() });
+  log.root = fnv(log.root + hash);
+}
+function logMerge(dst, src) {
+  let added = 0;
+  for (const e of src.entries) {
+    if (!dst.seen.has(e.hash)) { dst.seen.add(e.hash); dst.entries.push(e); added++; }
+  }
+  if (added > 0) dst.root = fnv(dst.entries.map(e=>e.hash).join(''));
+  return added;
+}
+
+const TEAM_NAMES = ['Alpha','Bravo','Charlie','Delta','Echo','Foxtrot','Golf','Hotel'];
+const REPORTS = ['Building assessed: safe','Casualties found: 2','Exit route blocked','Water supply disrupted','Structural damage: severe','Medical station needed','Fire contained','Gas leak detected'];
+
+function initState() {
+  round = 0; mergeCount = 0; reportCount = 0; casualties = 0;
+  hazardZone = { x: 300, y: 250, r: 90, active: false };
+  teams = [];
+  // Command node fixed in top-left area
+  const cmdLog = mkLog();
+  logAppend(cmdLog, 'status', 'COMMAND_ONLINE', 'CMD');
+  teams.push({
+    id: 'CMD', name: 'Command', x: 100, y: 100, r: 120,
+    color: '#58a6ff', log: cmdLog, isCommand: true,
+    synced: false, vx:0, vy:0
+  });
+  updateStats();
+}
+
+function deployTeam() {
+  if (teams.length >= 8) { addLog('Max teams deployed', 'info'); return; }
+  const name = TEAM_NAMES[teams.length - 1] || `Team-${teams.length}`;
+  const x = 120 + Math.random() * (W - 200);
+  const y = 120 + Math.random() * (H - 200);
+  const log = mkLog();
+  const report = REPORTS[Math.floor(Math.random() * REPORTS.length)];
+  logAppend(log, 'report', report, name);
+  if (report.includes('Casualties')) casualties += 2;
+  reportCount++;
+  teams.push({
+    id: name, name, x, y, r: 80,
+    color: '#3fb950', log, isCommand: false, synced: false,
+    vx: (Math.random()-.5)*0.3, vy: (Math.random()-.5)*0.3
+  });
+  addLog(`Team ${name} deployed at (${Math.round(x)},${Math.round(y)}) — "${report}"`, 'deploy');
+  updateStats(); render();
+}
+
+function dist(a, b) { return Math.sqrt((a.x-b.x)**2+(a.y-b.y)**2); }
+
+function mergeAll() {
+  round++;
+  let totalAdded = 0;
+  // Teams in range of each other share state
+  for (let i = 0; i < teams.length; i++) {
+    for (let j = i+1; j < teams.length; j++) {
+      const a = teams[i], b = teams[j];
+      const d = dist(a, b);
+      const range = a.r + b.r;
+      if (d < range) {
+        const ab = logMerge(a.log, b.log);
+        const ba = logMerge(b.log, a.log);
+        const added = ab + ba;
+        if (added > 0) {
+          mergeCount++;
+          totalAdded += added;
+          addLog(`${a.id} ↔ ${b.id}: +${added} entries merged`, 'merge');
+          a.synced = true; b.synced = true;
+        }
+      }
+    }
+  }
+  if (totalAdded === 0) addLog('Sync: all in-range nodes already up to date', 'info');
+  updateStats(); render();
+}
+
+function toggleZone() {
+  hazardZone.active = !hazardZone.active;
+  addLog(hazardZone.active ? '⚠ Hazard zone activated' : 'Hazard zone cleared', hazardZone.active ? 'alert' : 'info');
+  render();
+}
+
+function reset() { initState(); document.getElementById('log').innerHTML=''; render(); addLog('Scene reset','info'); }
+
+function addLog(msg, cls='info') {
+  const el = document.getElementById('log');
+  const line = document.createElement('div');
+  line.className = `log-line ${cls}`;
+  line.textContent = `[${round}] ${msg}`;
+  el.prepend(line);
+  while (el.children.length > 50) el.removeChild(el.lastChild);
+}
+
+function updateStats() {
+  document.getElementById('s-teams').textContent = teams.filter(t=>!t.isCommand).length;
+  document.getElementById('s-synced').textContent = mergeCount;
+  document.getElementById('s-reports').textContent = reportCount;
+  document.getElementById('s-casualties').textContent = casualties;
+}
+
+// --------------- Rendering ---------------
+function render() {
+  ctx.clearRect(0,0,W,H);
+
+  // Background grid
+  ctx.strokeStyle = 'rgba(48,54,61,0.4)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x+=40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+  for (let y = 0; y < H; y+=40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+
+  // Hazard zone
+  if (hazardZone.active) {
+    ctx.beginPath();
+    ctx.arc(hazardZone.x, hazardZone.y, hazardZone.r, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(248,81,73,0.12)';
+    ctx.fill();
+    ctx.strokeStyle = '#f85149';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6,4]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#f85149';
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('⚠ HAZARD', hazardZone.x, hazardZone.y);
+    ctx.fillText('ZONE', hazardZone.x, hazardZone.y + 16);
+  }
+
+  // Radio ranges & connections
+  for (let i = 0; i < teams.length; i++) {
+    const a = teams[i];
+    // Radio range circle
+    ctx.beginPath();
+    ctx.arc(a.x, a.y, a.r, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(88,166,255,0.04)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(88,166,255,0.2)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // Connections to in-range peers
+    for (let j = i+1; j < teams.length; j++) {
+      const b = teams[j];
+      if (dist(a,b) < a.r+b.r) {
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.strokeStyle = 'rgba(88,166,255,0.35)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    }
+  }
+
+  // Team nodes
+  for (const t of teams) {
+    const inHazard = hazardZone.active && dist(t, hazardZone) < hazardZone.r;
+    const color = t.isCommand ? '#58a6ff' : inHazard ? '#d29922' : t.color;
+    const r = t.isCommand ? 14 : 10;
+    // Node circle
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, r, 0, Math.PI*2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = '#0d1117';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // Label
+    ctx.fillStyle = '#e6edf3';
+    ctx.font = `bold ${t.isCommand?11:10}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText(t.id, t.x, t.y - r - 4);
+    // Root hash
+    ctx.fillStyle = '#8b949e';
+    ctx.font = '9px monospace';
+    ctx.fillText(t.log.root, t.x, t.y + r + 11);
+    // Entry count
+    ctx.fillStyle = color;
+    ctx.font = '9px monospace';
+    ctx.fillText(`${t.log.entries.length}e`, t.x, t.y + r + 22);
+  }
+}
+
+// --------------- Animate teams drifting ---------------
+function tick() {
+  for (const t of teams) {
+    if (t.isCommand) continue;
+    t.x += t.vx; t.y += t.vy;
+    if (t.x < 30 || t.x > W-30) t.vx *= -1;
+    if (t.y < 30 || t.y > H-30) t.vy *= -1;
+  }
+  render();
+  requestAnimationFrame(tick);
+}
+
+initState();
+tick();
+addLog('Scene initialised — deploy teams and sync', 'info');
+</script>
+</body>
+</html>

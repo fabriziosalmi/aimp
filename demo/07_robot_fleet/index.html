@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIMP Demo 7 — Robot Fleet Coordination</title>
+<style>
+  :root {
+    --bg:#0d1117; --surface:#161b22; --border:#30363d;
+    --text:#e6edf3; --muted:#8b949e;
+    --green:#3fb950; --yellow:#d29922; --red:#f85149;
+    --blue:#58a6ff; --purple:#bc8cff; --orange:#f0883e;
+    --cell-empty:#1c2128; --cell-occupied:#2d333b;
+    --cell-robot:#0d2137; --cell-target:#0d280d;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--text); font-family:'SF Mono','Fira Code',monospace; font-size:13px; padding:20px; }
+  h1 { color:var(--purple); font-size:18px; margin-bottom:4px; }
+  h2 { color:var(--muted); font-size:13px; margin-bottom:16px; font-weight:400; }
+  .layout { display:grid; grid-template-columns:auto 300px; gap:16px; }
+  #grid-wrap { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:12px; display:inline-block; }
+  .grid-title { color:var(--muted); font-size:11px; margin-bottom:8px; text-transform:uppercase; letter-spacing:.05em; }
+  #warehouse-grid { display:grid; gap:2px; }
+  .cell {
+    width:36px; height:36px; border-radius:4px; background:var(--cell-empty);
+    border:1px solid var(--border); display:flex; align-items:center; justify-content:center;
+    font-size:14px; position:relative; transition:background .2s;
+  }
+  .cell.occupied { background:var(--cell-occupied); }
+  .cell.robot { background:var(--cell-robot); border-color:var(--blue); }
+  .cell.target { background:var(--cell-target); border-color:var(--green); }
+  .cell.blocked { background:#1a1010; border-color:var(--red); }
+  .cell .robot-label { position:absolute; bottom:1px; right:2px; font-size:8px; color:var(--muted); }
+  .side { display:flex; flex-direction:column; gap:12px; }
+  .panel { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:12px; }
+  .panel h3 { color:var(--muted); font-size:11px; margin-bottom:10px; font-weight:normal; letter-spacing:.05em; text-transform:uppercase; }
+  button {
+    width:100%; background:var(--blue); color:#0d1117; border:none; border-radius:6px;
+    padding:8px 0; cursor:pointer; font-size:12px; font-family:inherit; font-weight:bold;
+    margin-bottom:6px; transition:opacity .15s;
+  }
+  button:hover { opacity:.85; }
+  button.danger { background:var(--red); }
+  button.warn   { background:var(--yellow); }
+  button.ok     { background:var(--green); }
+  .robot-list { display:flex; flex-direction:column; gap:6px; }
+  .robot-card { background:var(--border); border-radius:4px; padding:6px 8px; font-size:11px; }
+  .robot-card .rname { font-weight:bold; }
+  .robot-card .rinfo { color:var(--muted); font-size:10px; }
+  .robot-card.active .rname { color:var(--blue); }
+  .robot-card.charging .rname { color:var(--yellow); }
+  #log { max-height:180px; overflow-y:auto; }
+  .log-line { font-size:11px; padding:2px 0; }
+  .log-line.info    { color:var(--muted); }
+  .log-line.move    { color:var(--blue); }
+  .log-line.task    { color:var(--green); }
+  .log-line.block   { color:var(--red); }
+  .log-line.sync    { color:var(--purple); }
+  .stat-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .stat { background:var(--border); border-radius:4px; padding:6px 8px; }
+  .stat-label { color:var(--muted); font-size:10px; }
+  .stat-value { font-size:14px; font-weight:bold; color:var(--text); }
+</style>
+</head>
+<body>
+<h1>🤖 AIMP — Warehouse Robot Fleet</h1>
+<h2>Demo 7: AGVs share occupancy maps and task assignments via local mesh — even during WiFi outage</h2>
+
+<div class="layout">
+  <div>
+    <div id="grid-wrap">
+      <div class="grid-title">Warehouse Floor (12×8) — Shared Occupancy Map</div>
+      <div id="warehouse-grid"></div>
+    </div>
+  </div>
+  <div class="side">
+    <div class="panel">
+      <h3>Controls</h3>
+      <button onclick="stepAll()">⚙ Step All Robots</button>
+      <button class="warn" onclick="toggleOutage()">📡 Toggle WiFi Outage</button>
+      <button class="ok"   onclick="syncMaps()">🔄 Sync Occupancy Maps</button>
+      <button onclick="addTask()">📦 Add Pick Task</button>
+      <button class="danger" onclick="reset()">↺ Reset</button>
+    </div>
+    <div class="panel">
+      <h3>Statistics</h3>
+      <div class="stat-grid">
+        <div class="stat"><div class="stat-label">Robots</div><div class="stat-value" id="s-robots">0</div></div>
+        <div class="stat"><div class="stat-label">Tasks Done</div><div class="stat-value" id="s-tasks">0</div></div>
+        <div class="stat"><div class="stat-label">Conflicts</div><div class="stat-value" id="s-conflicts">0</div></div>
+        <div class="stat"><div class="stat-label">Sync Rounds</div><div class="stat-value" id="s-syncs">0</div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <h3>Robots</h3>
+      <div class="robot-list" id="robot-list"></div>
+    </div>
+    <div class="panel">
+      <h3>Event Log</h3>
+      <div id="log"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const COLS = 12, ROWS = 8;
+// Emoji for shelves, charging stations, tasks
+const SHELF = '📦', CHARGER = '⚡', TASK = '🎯', BLOCKED = '🚧';
+const ROBOT_EMOJIS = ['🤖','🦾','🦿','⚙️'];
+
+// Obstacles (shelves)
+const SHELVES = [
+  [2,1],[2,2],[2,3],[4,1],[4,2],[4,3],
+  [6,1],[6,2],[6,3],[8,1],[8,2],[8,3],
+  [2,5],[2,6],[4,5],[4,6],[6,5],[6,6],[8,5],[8,6],
+];
+const CHARGERS = [[0,0],[11,0],[0,7],[11,7]];
+
+function fnv(str) {
+  let h=2166136261;
+  for(let i=0;i<str.length;i++){h^=str.charCodeAt(i);h=(h*16777619)>>>0;}
+  return h.toString(16).slice(0,6);
+}
+
+// State
+let robots, tasks, tasksDone, conflicts, syncRounds, wifiOutage, tick;
+let occupancyVersion;  // shared CRDT: each robot's local view
+
+function isShelf(c,r) { return SHELVES.some(([sc,sr])=>sc===c&&sr===r); }
+function isCharger(c,r) { return CHARGERS.some(([cc,cr])=>cc===c&&cr===r); }
+function isBlocked(c,r) { return isShelf(c,r); }
+function robotAt(c,r) { return robots.find(rb=>rb.x===c&&rb.y===r); }
+
+const COLORS = ['#58a6ff','#3fb950','#f0883e','#bc8cff'];
+
+function initState() {
+  tick=0; tasksDone=0; conflicts=0; syncRounds=0; wifiOutage=false;
+  occupancyVersion = 0;
+  tasks = [];
+  // Spawn 4 robots at chargers
+  robots = CHARGERS.map(([x,y],i)=>({
+    id:`R${i+1}`, x, y, target:null, status:'idle',
+    color: COLORS[i], emoji: ROBOT_EMOJIS[i],
+    localMap: new Map(),  // cell->version seen
+    tasksDone:0, steps:0,
+  }));
+  // Initial tasks
+  for(let i=0;i<4;i++) spawnTask();
+  updateStats();
+}
+
+function spawnTask() {
+  let x,y;
+  do { x=1+Math.floor(Math.random()*(COLS-2)); y=1+Math.floor(Math.random()*(ROWS-2)); }
+  while(isBlocked(x,y)||robotAt(x,y)||tasks.find(t=>t.x===x&&t.y===y));
+  tasks.push({x,y,assigned:null});
+}
+
+function assignTasks() {
+  for(const r of robots) {
+    if(r.target||r.status==='charging') continue;
+    const free = tasks.filter(t=>!t.assigned);
+    if(!free.length) continue;
+    // Find nearest unassigned task
+    const best = free.reduce((a,b)=>dist(r,a)<dist(r,b)?a:b);
+    best.assigned = r.id; r.target = {x:best.x,y:best.y};
+    r.status = 'moving';
+    addLog(`${r.id} assigned to task at (${best.x},${best.y})`,'task');
+  }
+}
+
+function dist(a,b) { return Math.abs(a.x-b.x)+Math.abs(a.y-b.y); }
+
+function stepRobot(r) {
+  if(!r.target) return;
+  const {x:tx,y:ty}=r.target;
+  if(r.x===tx&&r.y===ty) {
+    // Task reached
+    tasks = tasks.filter(t=>!(t.x===tx&&t.y===ty));
+    r.target=null; r.status='idle'; r.tasksDone++; tasksDone++;
+    addLog(`${r.id} completed task at (${tx},${ty})`,'task');
+    // Update local map
+    r.localMap.set(`${tx},${ty}`, occupancyVersion++);
+    return;
+  }
+  // Simple greedy move
+  const dx = tx>r.x?1:tx<r.x?-1:0;
+  const dy = ty>r.y?1:ty<r.y?-1:0;
+  // Try x first, then y
+  for(const [mx,my] of [[dx,0],[0,dy],[0,dx!==0?1:-1],[-1,0],[0,-1]]) {
+    const nx=r.x+mx, ny=r.y+my;
+    if(nx<0||nx>=COLS||ny<0||ny>=ROWS) continue;
+    if(isBlocked(nx,ny)) continue;
+    const occupant = robotAt(nx,ny);
+    if(occupant&&occupant.id!==r.id) { conflicts++; continue; }
+    r.x=nx; r.y=ny; r.steps++;
+    r.localMap.set(`${nx},${ny}`,occupancyVersion++);
+    break;
+  }
+}
+
+function stepAll() {
+  tick++;
+  assignTasks();
+  // Shuffle order to avoid priority bias
+  const order = [...robots].sort(()=>Math.random()-.5);
+  for(const r of order) stepRobot(r);
+  if(tasks.length<2) { spawnTask(); spawnTask(); }
+  updateStats(); renderGrid(); renderRobots();
+}
+
+function syncMaps() {
+  syncRounds++;
+  // Share occupancy map entries between all robots (CRDT merge)
+  let total=0;
+  for(const a of robots) {
+    for(const b of robots) {
+      if(a===b) continue;
+      for(const [k,v] of b.localMap) {
+        if(!a.localMap.has(k)||a.localMap.get(k)<v) { a.localMap.set(k,v); total++; }
+      }
+    }
+  }
+  addLog(`Occupancy maps synced — ${total} entries merged`,'sync');
+  updateStats(); renderGrid();
+}
+
+let outageToggled = false;
+function toggleOutage() {
+  wifiOutage = !wifiOutage;
+  outageToggled = wifiOutage;
+  addLog(wifiOutage?'📡 WiFi OUTAGE — robots continue via direct mesh':'📡 WiFi restored','block');
+  renderGrid();
+}
+
+function addTask() { spawnTask(); addLog('New pick task added','task'); renderGrid(); }
+
+function reset() {
+  initState();
+  document.getElementById('log').innerHTML='';
+  renderGrid(); renderRobots();
+  addLog('Simulation reset','info');
+}
+
+function addLog(msg,cls='info') {
+  const el=document.getElementById('log');
+  const line=document.createElement('div');
+  line.className=`log-line ${cls}`;
+  line.textContent=`[T${tick}] ${msg}`;
+  el.prepend(line);
+  while(el.children.length>50) el.removeChild(el.lastChild);
+}
+
+function updateStats() {
+  document.getElementById('s-robots').textContent=robots.length;
+  document.getElementById('s-tasks').textContent=tasksDone;
+  document.getElementById('s-conflicts').textContent=conflicts;
+  document.getElementById('s-syncs').textContent=syncRounds;
+}
+
+function renderRobots() {
+  const list=document.getElementById('robot-list');
+  list.innerHTML=robots.map(r=>`
+    <div class="robot-card ${r.status}">
+      <div class="rname">${r.emoji} ${r.id} <span style="color:${r.color}">[${r.status}]</span></div>
+      <div class="rinfo">pos=(${r.x},${r.y})  tasks=${r.tasksDone}  steps=${r.steps}  map=${r.localMap.size}cells</div>
+    </div>`).join('');
+}
+
+function renderGrid() {
+  const grid=document.getElementById('warehouse-grid');
+  grid.style.gridTemplateColumns=`repeat(${COLS},36px)`;
+  grid.innerHTML='';
+  for(let row=0;row<ROWS;row++) {
+    for(let col=0;col<COLS;col++) {
+      const cell=document.createElement('div');
+      cell.className='cell';
+      const robot=robotAt(col,row);
+      const task=tasks.find(t=>t.x===col&&t.y===row);
+      if(robot) {
+        cell.className='cell robot';
+        cell.style.borderColor=robot.color;
+        cell.textContent=robot.emoji;
+        const lbl=document.createElement('span');
+        lbl.className='robot-label';
+        lbl.textContent=robot.id;
+        cell.appendChild(lbl);
+      } else if(isShelf(col,row)) {
+        cell.className='cell blocked';
+        cell.textContent=SHELF;
+      } else if(isCharger(col,row)) {
+        cell.textContent=CHARGER;
+      } else if(task) {
+        cell.className='cell target';
+        cell.textContent=TASK;
+      }
+      grid.appendChild(cell);
+    }
+  }
+  // WiFi outage overlay
+  if(wifiOutage) {
+    const banner=document.createElement('div');
+    banner.style.cssText='position:absolute;top:0;left:0;right:0;background:rgba(248,81,73,0.08);pointer-events:none;border-radius:8px;padding:4px;text-align:center;color:#f85149;font-size:11px;';
+    banner.textContent='📡 WiFi OUTAGE — mesh-only mode';
+    const wrap=document.getElementById('grid-wrap');
+    wrap.style.position='relative';
+    wrap.appendChild(banner);
+  }
+}
+
+// Auto-step every 800ms
+let autoInterval = setInterval(()=>{ stepAll(); renderRobots(); },800);
+
+initState();
+renderGrid();
+renderRobots();
+addLog('Warehouse simulation started — robots auto-stepping','info');
+</script>
+</body>
+</html>

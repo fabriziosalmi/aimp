@@ -1,0 +1,38 @@
+[
+  {
+    "keywords": ["error", "failure", "fault", "critical", "danger"],
+    "target": "system_alert",
+    "status": "CRITICAL",
+    "action_required": true
+  },
+  {
+    "keywords": ["valve", "pressure", "flow"],
+    "target": "hydraulic_system",
+    "status": "WARNING",
+    "action_required": true
+  },
+  {
+    "keywords": ["temperature", "temp", "heat", "thermal"],
+    "target": "thermal_system",
+    "status": "WARNING",
+    "action_required": true
+  },
+  {
+    "keywords": ["north", "nord"],
+    "target": "sector_north",
+    "status": "NORMAL",
+    "action_required": false
+  },
+  {
+    "keywords": ["south", "sud"],
+    "target": "sector_south",
+    "status": "NORMAL",
+    "action_required": false
+  },
+  {
+    "keywords": ["robot", "agv", "drone", "vehicle"],
+    "target": "autonomous_fleet",
+    "status": "NORMAL",
+    "action_required": false
+  }
+]

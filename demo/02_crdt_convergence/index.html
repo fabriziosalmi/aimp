@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AIMP Demo 2 — CRDT Convergence</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e; --green: #3fb950;
+    --yellow: #d29922; --red: #f85149; --blue: #58a6ff;
+    --purple: #bc8cff; --orange: #f0883e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px; padding: 20px; }
+  h1 { color: var(--blue); font-size: 18px; margin-bottom: 6px; }
+  h2 { color: var(--purple); font-size: 14px; margin-bottom: 12px; font-weight: 400; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 16px; }
+  .node { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .node-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .node-name { color: var(--blue); font-weight: bold; font-size: 14px; }
+  .node-root { color: var(--muted); font-size: 11px; }
+  .node-status { font-size: 10px; padding: 2px 8px; border-radius: 12px; background: var(--border); }
+  .node-status.online  { color: var(--green);  background: rgba(63,185,80,.15); }
+  .node-status.offline { color: var(--red);    background: rgba(248,81,73,.15); }
+  .dag-entries { max-height: 180px; overflow-y: auto; }
+  .entry { border-left: 2px solid var(--border); padding: 4px 8px; margin-bottom: 4px; font-size: 11px; color: var(--muted); }
+  .entry.local { border-color: var(--blue); }
+  .entry.remote { border-color: var(--green); }
+  .entry-key { color: var(--text); font-weight: bold; }
+  .entry-hash { color: var(--purple); }
+  .root-box { text-align: center; margin-top: 10px; padding: 6px; border-radius: 4px; background: var(--border); font-size: 11px; }
+  .root-box.converged { background: rgba(63,185,80,.15); color: var(--green); }
+  .root-box.diverged { background: rgba(248,81,73,.1); color: var(--red); }
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+  button {
+    background: var(--blue); color: #0d1117; border: none; border-radius: 6px;
+    padding: 7px 16px; cursor: pointer; font-size: 12px; font-family: inherit; font-weight: bold;
+    transition: opacity .15s;
+  }
+  button:hover { opacity: .85; }
+  button.danger { background: var(--red); }
+  button.warn   { background: var(--yellow); color: #0d1117; }
+  button.ok     { background: var(--green); color: #0d1117; }
+  button:disabled { opacity: .4; cursor: default; }
+  .log-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .log-panel h3 { color: var(--muted); font-size: 12px; margin-bottom: 8px; font-weight: normal; }
+  #log { max-height: 160px; overflow-y: auto; }
+  .log-line { padding: 2px 0; font-size: 11px; }
+  .log-line.info    { color: var(--muted); }
+  .log-line.gossip  { color: var(--blue); }
+  .log-line.merge   { color: var(--green); }
+  .log-line.partition { color: var(--red); }
+  .log-line.converge { color: var(--purple); font-weight: bold; }
+  .stat-bar { display: flex; gap: 24px; padding: 10px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; font-size: 12px; }
+  .stat { display: flex; flex-direction: column; }
+  .stat-label { color: var(--muted); font-size: 10px; margin-bottom: 2px; }
+  .stat-value { color: var(--text); font-size: 14px; font-weight: bold; }
+  .stat-value.green { color: var(--green); }
+  .stat-value.red   { color: var(--red); }
+  .vclock { font-size: 10px; color: var(--orange); margin-top: 6px; }
+  .section-title { color: var(--muted); font-size: 11px; margin: 16px 0 8px 0; letter-spacing: .05em; text-transform: uppercase; }
+  .partition-indicator {
+    text-align: center; padding: 6px; border-radius: 4px; font-size: 11px;
+    background: rgba(248,81,73,.1); color: var(--red); margin-bottom: 12px;
+    display: none;
+  }
+  .partition-indicator.active { display: block; }
+</style>
+</head>
+<body>
+
+<h1>AIMP — Merkle-DAG CRDT Convergence</h1>
+<h2>Demo 2: Visualise how three partitioned nodes converge after re-connecting</h2>
+
+<div class="stat-bar">
+  <div class="stat"><span class="stat-label">Global Round</span><span class="stat-value" id="stat-round">0</span></div>
+  <div class="stat"><span class="stat-label">Gossip Messages</span><span class="stat-value" id="stat-gossip">0</span></div>
+  <div class="stat"><span class="stat-label">Total Mutations</span><span class="stat-value" id="stat-mutations">0</span></div>
+  <div class="stat"><span class="stat-label">Convergence</span><span class="stat-value" id="stat-converge">—</span></div>
+</div>
+
+<div class="partition-indicator" id="partition-bar">⚠ Network Partition Active — Node-C is isolated</div>
+
+<div class="controls">
+  <button onclick="stepSense()" id="btn-sense">📡 Each Node Senses</button>
+  <button onclick="stepGossip()" id="btn-gossip">🔄 Gossip Round</button>
+  <button class="warn" onclick="togglePartition()" id="btn-partition">⚡ Partition Node-C</button>
+  <button class="ok"   onclick="autoRun()" id="btn-auto">▶ Auto-Run Demo</button>
+  <button class="danger" onclick="reset()">↺ Reset</button>
+</div>
+
+<div class="grid" id="node-grid">
+  <!-- filled by JS -->
+</div>
+
+<div class="log-panel">
+  <h3>Event Log</h3>
+  <div id="log"></div>
+</div>
+
+<script>
+// ============================================================
+// Merkle-DAG CRDT (JavaScript port of the Rust implementation)
+// ============================================================
+function sha256sim(str) {
+  // FNV-1a 32-bit — good enough for visualisation
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = (h * 16777619) >>> 0; }
+  return h.toString(16).padStart(8, '0');
+}
+
+class MerkleLog {
+  constructor(nodeId) {
+    this.nodeId = nodeId;
+    this.entries = [];   // { key, value, nodeId, seq, parentHash, hash }
+    this.seen = new Set();
+    this.vclock = {};
+    this._root = '00000000';
+  }
+  _tick() {
+    this.vclock[this.nodeId] = (this.vclock[this.nodeId] || 0) + 1;
+    return this.vclock[this.nodeId];
+  }
+  _entryHash(e) { return sha256sim(`${e.key}:${e.value}:${e.nodeId}:${e.seq}:${e.parentHash}`); }
+  append(key, value) {
+    const seq = this._tick();
+    const e = { key, value, nodeId: this.nodeId, seq, parentHash: this._root, hash: '' };
+    e.hash = this._entryHash(e);
+    this._apply(e);
+    return e;
+  }
+  _apply(e) {
+    if (this.seen.has(e.hash)) return false;
+    this.seen.add(e.hash);
+    this.entries.push(e);
+    this._root = sha256sim(this._root + e.hash);
+    return true;
+  }
+  mergeFrom(other) {
+    let added = 0;
+    for (const e of other.entries) { if (this._apply(e)) added++; }
+    for (const [k, v] of Object.entries(other.vclock))
+      this.vclock[k] = Math.max(this.vclock[k] || 0, v);
+    return added;
+  }
+  get root() { return this._root; }
+  get mutationCount() { return this.entries.length; }
+}
+
+// ============================================================
+// Simulation state
+// ============================================================
+const SENSOR_KEYS = ['temp', 'humidity', 'pressure', 'co2', 'voltage'];
+const SENSOR_UNITS = { temp:'°C', humidity:'%', pressure:'hPa', co2:'ppm', voltage:'V' };
+const SENSOR_RANGES = { temp:[18,45], humidity:[20,90], pressure:[900,1100], co2:[400,2000], voltage:[3.0,5.0] };
+function randInRange([lo,hi]) { return (lo + Math.random()*(hi-lo)).toFixed(2); }
+
+let nodes, partitionedNodes, globalRound, gossipCount;
+
+function initState() {
+  nodes = [
+    { id: 'node-A', log: new MerkleLog('node-A'), online: true, color: '#58a6ff' },
+    { id: 'node-B', log: new MerkleLog('node-B'), online: true, color: '#3fb950' },
+    { id: 'node-C', log: new MerkleLog('node-C'), online: true, color: '#f0883e' },
+  ];
+  partitionedNodes = new Set();
+  globalRound = 0;
+  gossipCount = 0;
+}
+
+// ============================================================
+// UI helpers
+// ============================================================
+function addLog(msg, cls='info') {
+  const el = document.getElementById('log');
+  const line = document.createElement('div');
+  line.className = `log-line ${cls}`;
+  line.textContent = `[R${globalRound}] ${msg}`;
+  el.prepend(line);
+  while (el.children.length > 60) el.removeChild(el.lastChild);
+}
+
+function render() {
+  const grid = document.getElementById('node-grid');
+  grid.innerHTML = '';
+  const roots = nodes.map(n => n.log.root);
+  const allSame = new Set(roots).size === 1;
+
+  for (const node of nodes) {
+    const isPartitioned = partitionedNodes.has(node.id);
+    const div = document.createElement('div');
+    div.className = 'node';
+    div.style.borderColor = isPartitioned ? 'var(--red)' : node.color;
+
+    const vcStr = Object.entries(node.log.vclock).map(([k,v])=>`${k.slice(-1)}:${v}`).join(' ');
+    const entries = [...node.log.entries].reverse().slice(0, 12);
+
+    div.innerHTML = `
+      <div class="node-header">
+        <span class="node-name" style="color:${node.color}">${node.id}</span>
+        <span class="node-status ${isPartitioned ? 'offline' : 'online'}">${isPartitioned ? 'ISOLATED' : 'ONLINE'}</span>
+      </div>
+      <div class="dag-entries">
+        ${entries.map(e => `
+          <div class="entry ${e.nodeId === node.id ? 'local' : 'remote'}">
+            <span class="entry-key">${e.key}</span>=<span>${e.value}${SENSOR_UNITS[e.key]||''}</span>
+            <span class="entry-hash"> #${e.hash}</span>
+            <span style="color:var(--muted)"> @${e.nodeId.slice(-1)}</span>
+          </div>`).join('')}
+      </div>
+      <div class="vclock">vclock: ${vcStr || '—'}</div>
+      <div class="root-box ${allSame ? 'converged' : 'diverged'}">
+        root: <b>${node.log.root}</b> | mutations: ${node.log.mutationCount}
+        ${allSame ? ' ✓ converged' : ''}
+      </div>
+    `;
+    grid.appendChild(div);
+  }
+
+  const totalMuts = nodes.reduce((s, n) => s + n.log.mutationCount, 0);
+  document.getElementById('stat-round').textContent = globalRound;
+  document.getElementById('stat-gossip').textContent = gossipCount;
+  document.getElementById('stat-mutations').textContent = totalMuts;
+  const convEl = document.getElementById('stat-converge');
+  convEl.textContent = allSame ? '✓ YES' : '✗ NO';
+  convEl.className = `stat-value ${allSame ? 'green' : 'red'}`;
+
+  document.getElementById('partition-bar').classList.toggle('active', partitionedNodes.size > 0);
+}
+
+// ============================================================
+// Actions
+// ============================================================
+function stepSense() {
+  globalRound++;
+  for (const node of nodes) {
+    const key = SENSOR_KEYS[Math.floor(Math.random() * SENSOR_KEYS.length)];
+    const value = randInRange(SENSOR_RANGES[key]);
+    node.log.append(key, value);
+    addLog(`${node.id} sensed ${key}=${value}${SENSOR_UNITS[key]||''}`, 'info');
+  }
+  render();
+}
+
+function stepGossip() {
+  const online = nodes.filter(n => !partitionedNodes.has(n.id));
+  let total = 0;
+  for (const sender of online) {
+    for (const receiver of online) {
+      if (sender === receiver) continue;
+      const added = receiver.log.mergeFrom(sender.log);
+      if (added > 0) {
+        gossipCount++;
+        total += added;
+        addLog(`${sender.id} → ${receiver.id}: +${added} entries`, 'gossip');
+      }
+    }
+  }
+  if (total === 0) addLog('Gossip: nothing new to exchange', 'info');
+  const roots = nodes.map(n => n.log.root);
+  if (new Set(roots).size === 1) addLog('✓ All online nodes converged!', 'converge');
+  render();
+}
+
+let partitioned = false;
+function togglePartition() {
+  partitioned = !partitioned;
+  const btn = document.getElementById('btn-partition');
+  if (partitioned) {
+    partitionedNodes.add('node-C');
+    addLog('PARTITION: node-C isolated from mesh', 'partition');
+    btn.textContent = '🔗 Heal Partition';
+    btn.className = 'ok';
+  } else {
+    partitionedNodes.clear();
+    addLog('HEAL: node-C reconnected', 'merge');
+    btn.textContent = '⚡ Partition Node-C';
+    btn.className = 'warn';
+    // Trigger merge gossip automatically
+    setTimeout(() => { stepGossip(); stepGossip(); }, 200);
+  }
+  render();
+}
+
+function reset() {
+  partitioned = false;
+  initState();
+  document.getElementById('btn-partition').textContent = '⚡ Partition Node-C';
+  document.getElementById('btn-partition').className = 'warn';
+  document.getElementById('log').innerHTML = '';
+  render();
+  addLog('Simulation reset', 'info');
+}
+
+async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function autoRun() {
+  const btn = document.getElementById('btn-auto');
+  btn.disabled = true;
+  reset();
+  addLog('▶ Auto-demo starting…', 'converge');
+
+  // Phase 1: Normal operation
+  for (let i = 0; i < 3; i++) { stepSense(); await sleep(500); stepGossip(); await sleep(600); }
+
+  // Phase 2: Partition
+  if (!partitioned) togglePartition();
+  for (let i = 0; i < 3; i++) { stepSense(); await sleep(500); stepGossip(); await sleep(600); }
+
+  // Phase 3: Heal
+  if (partitioned) togglePartition();
+  for (let i = 0; i < 3; i++) { stepGossip(); await sleep(600); }
+
+  addLog('▶ Demo complete — all nodes converged', 'converge');
+  btn.disabled = false;
+}
+
+// ============================================================
+// Boot
+// ============================================================
+initState();
+render();
+addLog('Simulation ready — press "Each Node Senses" then "Gossip Round"', 'info');
+</script>
+</body>
+</html>
