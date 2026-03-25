@@ -1,0 +1,95 @@
+shapiro2011:
+  type: article
+  title: "Conflict-Free Replicated Data Types"
+  author:
+    - Shapiro, Marc
+    - Preguica, Nuno
+    - Baquero, Carlos
+    - Zawirski, Marek
+  date: 2011
+  parent:
+    type: proceedings
+    title: "Proceedings of the 13th International Symposium on Stabilization, Safety, and Security of Distributed Systems (SSS)"
+
+kleppmann2022:
+  type: article
+  title: "Making CRDTs Byzantine Fault Tolerant"
+  author:
+    - Kleppmann, Martin
+  date: 2022
+  parent:
+    type: proceedings
+    title: "Proceedings of the 9th Workshop on Principles and Practice of Consistency for Distributed Data (PaPoC)"
+
+salmi2026aimp:
+  type: article
+  title: "AIMP: AI Mesh Protocol\u2014Design and Evaluation of a Serverless Merkle-CRDT Protocol for Edge Agent Synchronization"
+  author:
+    - Salmi, Fabrizio
+  date: 2026
+  url: "https://www.researchgate.net/publication/403127328"
+
+castro1999:
+  type: article
+  title: "Practical Byzantine Fault Tolerance"
+  author:
+    - Castro, Miguel
+    - Liskov, Barbara
+  date: 1999
+  parent:
+    type: proceedings
+    title: "Proceedings of the Third Symposium on Operating Systems Design and Implementation (OSDI)"
+
+buchman2016:
+  type: article
+  title: "Tendermint: Byzantine Fault Tolerance in the Age of Blockchains"
+  author:
+    - Buchman, Ethan
+  date: 2016
+  parent:
+    type: thesis
+    title: "M.Sc. Thesis, University of Guelph"
+
+buterin2017:
+  type: article
+  title: "Casper the Friendly Finality Gadget"
+  author:
+    - Buterin, Vitalik
+    - Griffith, Virgil
+  date: 2017
+  url: "https://arxiv.org/abs/1710.09437"
+
+genest1986:
+  type: article
+  title: "Combining Probability Distributions: A Critique and an Annotated Bibliography"
+  author:
+    - Genest, Christian
+    - Zidek, James V.
+  date: 1986
+  parent:
+    type: periodical
+    title: "Statistical Science"
+  volume: 1
+  issue: 1
+  page-range: 114-148
+
+jaynes2003:
+  type: book
+  title: "Probability Theory: The Logic of Science"
+  author:
+    - Jaynes, Edwin T.
+  date: 2003
+  publisher: Cambridge University Press
+
+page1999:
+  type: article
+  title: "The PageRank Citation Ranking: Bringing Order to the Web"
+  author:
+    - Page, Lawrence
+    - Brin, Sergey
+    - Motwani, Rajeev
+    - Winograd, Terry
+  date: 1999
+  parent:
+    type: periodical
+    title: "Stanford InfoLab Technical Report"
