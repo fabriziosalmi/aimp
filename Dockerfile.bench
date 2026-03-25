@@ -1,0 +1,17 @@
+# Benchmark-only image: builds and runs convergence + netem benchmarks
+FROM rust:1.85-bookworm AS builder
+
+WORKDIR /build
+COPY Cargo.toml Cargo.lock ./
+COPY aimp_node/ aimp_node/
+
+RUN cargo build --release --manifest-path aimp_node/Cargo.toml \
+    --example bench_convergence --example bench_netem
+
+# Slim runtime with just the benchmark binaries
+FROM debian:bookworm-slim
+
+COPY --from=builder /build/target/release/examples/bench_convergence /usr/local/bin/
+COPY --from=builder /build/target/release/examples/bench_netem /usr/local/bin/
+
+ENTRYPOINT ["bench_convergence"]

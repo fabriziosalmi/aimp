@@ -1,0 +1,87 @@
+services:
+  node1:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["--headless", "--port", "1337", "--name", "node1"]
+    environment:
+      - AIMP_NOISE_REQUIRED=false
+      - AIMP_METRICS_PORT=9090
+      - AIMP_PEER_RATE_LIMIT=10000
+      - AIMP_PEER_RATE_BURST=20000
+    networks:
+      aimp_mesh:
+        ipv4_address: 172.30.0.11
+    ports:
+      - "9091:9090"
+
+  node2:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["--headless", "--port", "1337", "--name", "node2"]
+    environment:
+      - AIMP_NOISE_REQUIRED=false
+      - AIMP_METRICS_PORT=9090
+      - AIMP_PEER_RATE_LIMIT=10000
+      - AIMP_PEER_RATE_BURST=20000
+    networks:
+      aimp_mesh:
+        ipv4_address: 172.30.0.12
+    ports:
+      - "9092:9090"
+
+  node3:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["--headless", "--port", "1337", "--name", "node3"]
+    environment:
+      - AIMP_NOISE_REQUIRED=false
+      - AIMP_METRICS_PORT=9090
+      - AIMP_PEER_RATE_LIMIT=10000
+      - AIMP_PEER_RATE_BURST=20000
+    networks:
+      aimp_mesh:
+        ipv4_address: 172.30.0.13
+    ports:
+      - "9093:9090"
+
+  node4:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["--headless", "--port", "1337", "--name", "node4"]
+    environment:
+      - AIMP_NOISE_REQUIRED=false
+      - AIMP_METRICS_PORT=9090
+      - AIMP_PEER_RATE_LIMIT=10000
+      - AIMP_PEER_RATE_BURST=20000
+    networks:
+      aimp_mesh:
+        ipv4_address: 172.30.0.14
+    ports:
+      - "9094:9090"
+
+  node5:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    command: ["--headless", "--port", "1337", "--name", "node5"]
+    environment:
+      - AIMP_NOISE_REQUIRED=false
+      - AIMP_METRICS_PORT=9090
+      - AIMP_PEER_RATE_LIMIT=10000
+      - AIMP_PEER_RATE_BURST=20000
+    networks:
+      aimp_mesh:
+        ipv4_address: 172.30.0.15
+    ports:
+      - "9095:9090"
+
+networks:
+  aimp_mesh:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24

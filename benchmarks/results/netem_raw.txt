@@ -1,0 +1,60 @@
+warning: failed to auto-clean cache data
+
+failed to clean entries from the global cache
+
+Caused by:
+  failed to remove file `/Users/fab/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/reqwest-0.13.1/Cargo.toml`
+
+Caused by:
+  Permission denied (os error 13)
+warning: field `distinct_roots_final` is never read
+   --> aimp_node/examples/bench_netem.rs:133:5
+    |
+127 | struct NetemResult {
+    |        ----------- field in this struct
+...
+133 |     distinct_roots_final: usize,
+    |     ^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `aimp_node` (example "bench_netem") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 0.28s
+     Running `target/release/examples/bench_netem`
+AIMP Network Impairment Benchmark (netem simulation)
+=====================================================
+Nodes: 5, Mutations/node: 50
+
+
+Scenario                                              Conv?   Rounds       Time  Transferred
+--------------------------------------------------------------------------------------------
+Baseline (0% loss, 0 latency)                           YES        1     2.280ms         1000
+5% packet loss                                          YES        2     1.306ms         1000
+10% packet loss                                         YES        1     0.529ms         1000
+20% packet loss                                         YES        2     0.917ms         1000
+30% packet loss                                         YES        2     1.559ms         1000
+50% packet loss                                         YES        2     0.526ms         1000
+10ms latency                                            YES        1     0.830ms         1000
+50ms latency                                            YES        1     0.838ms         1000
+100ms latency + 20ms jitter                             YES        1     0.933ms         1000
+10% loss + 50ms latency                                 YES        2     0.947ms         1000
+20% loss + 100ms latency + 30ms jitter                  YES        2     0.825ms         1000
+
+Partition Scenario                                    Conv?   Rounds Merge Time  Transferred
+--------------------------------------------------------------------------------------------
+Partition 10R then merge (loss=0%)                      YES        1     0.162ms           50
+Partition 10R then merge (loss=10%)                     YES        1     0.119ms           50
+Partition 10R then merge (loss=30%)                     YES        1     0.041ms           50
+Partition 50R then merge (loss=0%)                      YES        1     0.207ms          250
+Partition 50R then merge (loss=20%)                     YES        1     0.192ms          250
+
+--- Stress Test: Convergence threshold ---
+  60% packet loss (stress)                 conv=YES   rounds=4    time=0.622ms
+  70% packet loss (stress)                 conv=NO    rounds=4    time=0.457ms
+  80% packet loss (stress)                 conv=NO    rounds=3    time=0.452ms
+  90% packet loss (stress)                 conv=NO    rounds=4    time=0.205ms
+  95% packet loss (stress)                 conv=NO    rounds=5    time=0.125ms
+
+=====================================================
+BENCHMARK COMPLETE
+=====================================================

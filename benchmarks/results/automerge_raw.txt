@@ -1,0 +1,53 @@
+warning: failed to auto-clean cache data
+
+failed to clean entries from the global cache
+
+Caused by:
+  failed to remove file `/Users/fab/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/reqwest-0.13.1/Cargo.toml`
+
+Caused by:
+  Permission denied (os error 13)
+    Finished `release` profile [optimized] target(s) in 0.32s
+     Running `target/release/compare_automerge`
+AIMP vs Automerge — Quantitative Comparison
+============================================
+Note: AIMP includes Ed25519 sign per mutation; Automerge does not.
+
+--- Benchmark 1: Mutation Throughput (1000 ops) ---
+
+  AIMP:             21.928ms  (45604 ops/sec)  [DAG nodes: 101]
+  AIMP (fast):      18.470ms  (54143 ops/sec)  [DAG nodes: 101]
+  Automerge:        17.235ms  (58020 ops/sec)  [doc size: 4088 bytes]
+
+--- Benchmark 2: Two-Replica Merge (500 ops each) ---
+
+  AIMP:         0.582ms  [nodes: 1000, converged: true]
+  Automerge:    3.484ms  [ops: 500+500, converged: true]
+
+--- Benchmark 3: 5-Replica Merge (200 ops each) ---
+
+  AIMP:         3.818ms  [nodes: 1000, converged: true]
+  Automerge:    9.859ms  [replicas: 5, ops_total: 1000]
+
+--- Benchmark 4: Serialized State Size (1000 ops) ---
+
+  AIMP:      ~17978 bytes (101 nodes, estimated)
+  Automerge: 4007 bytes (save() output)
+
+--- Benchmark 5: Ed25519 Sign/Verify — dalek vs ring ---
+
+  dalek sign:   9.3 µs/op  (107087 ops/sec)
+  ring sign:    7.9 µs/op  (126898 ops/sec)
+
+--- Benchmark 6: AIMP Mutation with ring signing ---
+
+  AIMP+ring:         8.071ms  (123901 ops/sec)  [DAG nodes: 101]
+
+============================================
+COMPARISON COMPLETE
+============================================
+
+Note: AIMP includes Ed25519 cryptographic signatures per mutation.
+Automerge does NOT include signatures — it's a pure CRDT without
+zero-trust verification. This is a design tradeoff, not a deficiency
+of either system. AIMP trades throughput for cryptographic integrity.

@@ -1,0 +1,37 @@
+name: Bug Report
+description: Report a bug to help us improve AIMP
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug. Please provide as much technical detail as possible.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Please provide a Minimal Reproducible Example (MRE) if possible.
+    validations:
+      required: true
+  - type: input
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should have happened?
+  - type: input
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened? (Include error messages/logs)
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS version, Rust version, AIMP version.

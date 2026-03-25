@@ -1,0 +1,7 @@
+append_mutation         time:   [40.897 µs 41.762 µs 42.735 µs]
+merkle_root_50_heads    time:   [4.5791 ns 4.7822 ns 4.9806 ns]
+blake3_hash_1kb         time:   [880.82 ns 925.14 ns 991.66 ns]
+serialize_envelope      time:   [199.58 ns 203.66 ns 210.86 ns]
+deserialize_envelope    time:   [198.37 ns 210.18 ns 223.32 ns]
+ed25519_sign            time:   [12.837 µs 13.091 µs 13.372 µs]
+ed25519_verify          time:   [23.913 µs 24.976 µs 26.418 µs]

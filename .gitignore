@@ -1,0 +1,35 @@
+# Rust / Cargo
+**/target/
+aimp_state/
+**/*.rs.bk
+Cargo.lock
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv
+venv/
+ENV/
+env/
+
+# OS / IDE
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build artifacts
+dist/
+
+# AIMP Logs / Temp
+*.log
+MISSION_LOG.json
+/tmp/aimp_*
+TODO.md
+
+# TLC model checker artifacts
+formal/states/
+formal/*_TTrace_*
+.DS_Store

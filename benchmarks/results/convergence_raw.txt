@@ -1,0 +1,55 @@
+warning: failed to auto-clean cache data
+
+failed to clean entries from the global cache
+
+Caused by:
+  failed to remove file `/Users/fab/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/reqwest-0.13.1/Cargo.toml`
+
+Caused by:
+  Permission denied (os error 13)
+warning: function `full_sync` is never used
+  --> aimp_node/examples/bench_convergence.rs:43:4
+   |
+43 | fn full_sync(src: &MerkleCrdtEngine, dst: &mut MerkleCrdtEngine) -> usize {
+   |    ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `aimp_node` (example "bench_convergence") generated 1 warning
+    Finished `release` profile [optimized] target(s) in 0.86s
+     Running `target/release/examples/bench_convergence`
+AIMP System-Level Convergence Benchmark
+========================================
+
+
+--- Benchmark 1: Throughput (5 nodes x 1000 mutations) ---
+  Total mutations: 5000
+  Time: 51.927ms
+  Rate: 96289 mutations/sec (with Ed25519 sign per mutation)
+
+--- Benchmark 2: Convergence (5 nodes x 50 mutations, anti-entropy sync) ---
+  Distinct roots before sync: 5
+  CONVERGED in 0.682ms (1 rounds)
+  Nodes transferred: 1000
+  DAG nodes per engine: 250
+  Heads per engine: 5
+  Final root: 47a3e36691a93cb323bb00f016a07b4fec10c861cff6e0d1e18d103e165e0f7e
+
+--- Benchmark 3: Partition/Merge (5 nodes, 30 mutations per group) ---
+  Baseline converged: 5eba68908072232797d5bcea8b069d8a58a1ae6bb6a0c2e811037844969ecb8b
+  Partition phase: 0.497ms (30 mutations/group)
+  Distinct roots after partition: 2
+  MERGED in 0.213ms (1 rounds)
+  Final root: da40162b97e404cba989505872b5de0cd1c79f78d9ebcc408497296f592365f9
+  DAG nodes per engine: 70
+
+--- Benchmark 4: Crypto hot-path breakdown (per-message cost) ---
+  Sign:   9.3 µs/op
+  Verify: 35.6 µs/op
+  Total:  45.0 µs/msg
+  Max theoretical throughput: 22232 msg/sec per peer
+  At rate_limit=50/sec: 0.225% of crypto budget
+
+========================================
+BENCHMARK COMPLETE
+========================================

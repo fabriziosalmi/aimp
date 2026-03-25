@@ -1,0 +1,18 @@
+[workspace]
+members = ["aimp_node", "benchmarks"]
+resolver = "2"
+
+# Optimized release profile for edge deployment
+# Produces smaller binaries with LTO and symbol stripping
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# Even smaller binaries at the cost of compile time
+[profile.edge]
+inherits = "release"
+lto = "fat"
+opt-level = "s"

@@ -1,0 +1,16 @@
+[package]
+name = "aimp_comparison_bench"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "compare_automerge"
+path = "compare_automerge.rs"
+
+[dependencies]
+automerge = "0.7"
+yrs = "0.25"
+aimp_node = { path = "../aimp_node" }
+rand = "0.8"
+rmp-serde = "1.1"
+ring = "0.17"

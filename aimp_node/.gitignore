@@ -1,0 +1,9 @@
+# Rust build artifacts
+/target/
+
+# IDEs
+.idea/
+.vscode/
+
+# Local configuration
+.env

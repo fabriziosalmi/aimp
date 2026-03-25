@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Check & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: aimp_node
+      - name: cargo fmt
+        run: cargo fmt --manifest-path aimp_node/Cargo.toml -- --check
+      - name: cargo clippy
+        run: cargo clippy --manifest-path aimp_node/Cargo.toml -- -D warnings
+      - name: cargo check
+        run: cargo check --manifest-path aimp_node/Cargo.toml
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: aimp_node
+      - name: cargo test
+        run: cargo test --manifest-path aimp_node/Cargo.toml
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit
+      - name: cargo audit
+        run: cargo audit --file aimp_node/Cargo.lock
+        continue-on-error: true

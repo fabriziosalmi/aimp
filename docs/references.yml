@@ -1,0 +1,95 @@
+shapiro2011crdt:
+  type: report
+  title: "A Comprehensive Study of Convergent and Commutative Replicated Data Types"
+  author:
+    - Shapiro, Marc
+    - Preguiça, Nuno
+    - Baquero, Carlos
+    - Zawirski, Marek
+  date: 2011
+  serial-number: "RR-7506"
+  publisher: INRIA
+
+kleppmann2022merkle:
+  type: article
+  title: "Byzantine Eventual Consistency and the Fundamental Limits of Peer-to-Peer Databases"
+  author:
+    - Kleppmann, Martin
+    - Howard, Heidi
+  date: 2022
+  parent:
+    type: periodical
+    title: "arXiv preprint arXiv:2012.00472"
+
+castro1999pbft:
+  type: article
+  title: "Practical Byzantine Fault Tolerance"
+  author:
+    - Castro, Miguel
+    - Liskov, Barbara
+  date: 1999
+  parent:
+    type: proceedings
+    title: "Proceedings of the Third Symposium on Operating Systems Design and Implementation (OSDI)"
+  page-range: 173-186
+
+perrin2018noise:
+  type: web
+  title: "The Noise Protocol Framework"
+  author:
+    - Perrin, Trevor
+  date: 2018
+  url: https://noiseprotocol.org/noise.html
+
+demers1987epidemic:
+  type: article
+  title: "Epidemic Algorithms for Replicated Database Maintenance"
+  author:
+    - Demers, Alan
+    - Greene, Dan
+    - Hauser, Carl
+    - Irish, Wes
+    - Larson, John
+    - Shenker, Scott
+    - Sturgis, Howard
+    - Swinehart, Dan
+    - Terry, Doug
+  date: 1987
+  parent:
+    type: proceedings
+    title: "Proceedings of the Sixth Annual ACM Symposium on Principles of Distributed Computing (PODC)"
+  page-range: 1-12
+
+mattern1988virtual:
+  type: article
+  title: "Virtual Time and Global States of Distributed Systems"
+  author:
+    - Mattern, Friedemann
+  date: 1988
+  parent:
+    type: proceedings
+    title: "Proceedings of the International Workshop on Parallel and Distributed Algorithms"
+  page-range: 215-226
+
+ongaro2014raft:
+  type: article
+  title: "In Search of an Understandable Consensus Algorithm"
+  author:
+    - Ongaro, Diego
+    - Ousterhout, John
+  date: 2014
+  parent:
+    type: proceedings
+    title: "Proceedings of the 2014 USENIX Annual Technical Conference (ATC)"
+  page-range: 305-319
+
+merkle1987signature:
+  type: article
+  title: "A Digital Signature Based on a Conventional Encryption Function"
+  author:
+    - Merkle, Ralph C.
+  date: 1987
+  parent:
+    type: proceedings
+    title: "Advances in Cryptology — CRYPTO '87"
+  page-range: 369-378
