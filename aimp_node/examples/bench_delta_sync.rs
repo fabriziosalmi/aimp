@@ -7,7 +7,6 @@
 ///!
 ///! Run: RUSTFLAGS="-C target-cpu=native" cargo run --release \
 ///!        --features fast-crypto --example bench_delta_sync
-
 use aimp_node::crdt::merkle_dag::{DagNode, MerkleCrdtEngine};
 use aimp_node::crypto::{Identity, SecurityFirewall};
 use rand::prelude::*;
@@ -15,8 +14,12 @@ use std::collections::BTreeMap;
 use std::time::Instant;
 
 fn compute_batch_root(hashes: &[[u8; 32]]) -> [u8; 32] {
-    if hashes.is_empty() { return [0u8; 32]; }
-    if hashes.len() == 1 { return hashes[0]; }
+    if hashes.is_empty() {
+        return [0u8; 32];
+    }
+    if hashes.len() == 1 {
+        return hashes[0];
+    }
     let mut level: Vec<[u8; 32]> = hashes.to_vec();
     while level.len() > 1 {
         let mut next = Vec::with_capacity((level.len() + 1) / 2);
@@ -26,7 +29,9 @@ fn compute_batch_root(hashes: &[[u8; 32]]) -> [u8; 32] {
                 h.update(&pair[0]);
                 h.update(&pair[1]);
                 next.push(*h.finalize().as_bytes());
-            } else { next.push(pair[0]); }
+            } else {
+                next.push(pair[0]);
+            }
         }
         level = next;
     }
@@ -36,11 +41,15 @@ fn compute_batch_root(hashes: &[[u8; 32]]) -> [u8; 32] {
 fn recompute_heads(engine: &mut MerkleCrdtEngine) {
     let mut has_children = rustc_hash::FxHashSet::default();
     for (_, node) in engine.arena.get_all_iter() {
-        for p in &node.parents { has_children.insert(*p); }
+        for p in &node.parents {
+            has_children.insert(*p);
+        }
     }
     engine.heads.clear();
     for (hash, _) in engine.arena.get_all_iter() {
-        if !has_children.contains(hash) { engine.heads.insert(*hash); }
+        if !has_children.contains(hash) {
+            engine.heads.insert(*hash);
+        }
     }
     engine.invalidate_root();
 }
@@ -66,7 +75,9 @@ fn create_engines(
                 let s = identity.sign_bytes(&root);
                 pending.clear();
                 s
-            } else { [0u8; 64] };
+            } else {
+                [0u8; 64]
+            };
             let mut vc = BTreeMap::new();
             vc.insert(format!("n{}", ni), tick as u64 + 1);
             engine.append_mutation(data_hash, sig, vc, None);
@@ -92,9 +103,14 @@ fn sync_full_state(engines: &mut Vec<MerkleCrdtEngine>) -> (f64, usize) {
         let mut transferred = 0;
         for i in 0..n {
             for j in 0..n {
-                if i == j { continue; }
+                if i == j {
+                    continue;
+                }
                 let src_nodes: Vec<([u8; 32], DagNode)> = engines[i]
-                    .arena.get_all_iter().map(|(h, n)| (*h, n.clone())).collect();
+                    .arena
+                    .get_all_iter()
+                    .map(|(h, n)| (*h, n.clone()))
+                    .collect();
                 let dst = &mut engines[j];
                 let mut added = false;
                 for (hash, node) in &src_nodes {
@@ -104,11 +120,15 @@ fn sync_full_state(engines: &mut Vec<MerkleCrdtEngine>) -> (f64, usize) {
                         added = true;
                     }
                 }
-                if added { recompute_heads(dst); }
+                if added {
+                    recompute_heads(dst);
+                }
             }
         }
         let (conv, _) = check_convergence(engines);
-        if conv || transferred == 0 || rounds > 20 { break; }
+        if conv || transferred == 0 || rounds > 20 {
+            break;
+        }
     }
     (start.elapsed().as_secs_f64() * 1000.0, rounds)
 }
@@ -126,7 +146,9 @@ fn sync_delta_vdiff(engines: &mut Vec<MerkleCrdtEngine>) -> (f64, usize, usize) 
 
         for i in 0..n {
             for j in 0..n {
-                if i == j { continue; }
+                if i == j {
+                    continue;
+                }
                 // Get remote heads
                 let remote_heads: Vec<_> = engines[j].heads.iter().copied().collect();
                 // Compute delta: only nodes j doesn't have
@@ -148,16 +170,19 @@ fn sync_delta_vdiff(engines: &mut Vec<MerkleCrdtEngine>) -> (f64, usize, usize) 
 
         total_transferred += transferred;
         let (conv, _) = check_convergence(engines);
-        if conv || transferred == 0 || rounds > 20 { break; }
+        if conv || transferred == 0 || rounds > 20 {
+            break;
+        }
     }
-    (start.elapsed().as_secs_f64() * 1000.0, rounds, total_transferred)
+    (
+        start.elapsed().as_secs_f64() * 1000.0,
+        rounds,
+        total_transferred,
+    )
 }
 
 /// Strategy 3: Gossip fan-out with delta-vdiff (O(N×K×Δ))
-fn sync_gossip_fanout(
-    engines: &mut Vec<MerkleCrdtEngine>,
-    fanout: usize,
-) -> (f64, usize, usize) {
+fn sync_gossip_fanout(engines: &mut Vec<MerkleCrdtEngine>, fanout: usize) -> (f64, usize, usize) {
     let n = engines.len();
     let mut rng = rand::thread_rng();
     let start = Instant::now();
@@ -194,9 +219,15 @@ fn sync_gossip_fanout(
 
         total_transferred += transferred;
         let (conv, _) = check_convergence(engines);
-        if conv || transferred == 0 || rounds > 50 { break; }
+        if conv || transferred == 0 || rounds > 50 {
+            break;
+        }
     }
-    (start.elapsed().as_secs_f64() * 1000.0, rounds, total_transferred)
+    (
+        start.elapsed().as_secs_f64() * 1000.0,
+        rounds,
+        total_transferred,
+    )
 }
 
 fn main() {
@@ -212,10 +243,18 @@ fn main() {
     println!("{}", "-".repeat(85));
 
     for (num_nodes, mutations_per_node) in [
-        (5, 100), (10, 100), (20, 100), (30, 100), (50, 100),
-        (5, 500), (10, 500), (20, 500),
-        (5, 1000), (10, 1000),
-        (50, 500), (100, 100),
+        (5, 100),
+        (10, 100),
+        (20, 100),
+        (30, 100),
+        (50, 100),
+        (5, 500),
+        (10, 500),
+        (20, 500),
+        (5, 1000),
+        (10, 1000),
+        (50, 500),
+        (100, 100),
     ] {
         // Create 3 identical copies of the same initial state
         let mut engines_full = create_engines(num_nodes, mutations_per_node, batch_size);
@@ -234,15 +273,32 @@ fn main() {
         let (dc, _) = check_convergence(&mut engines_delta);
         let (gc, _) = check_convergence(&mut engines_gossip);
 
-        let full_str = if fc { format!("{:.1}ms", full_ms) } else { "FAIL".to_string() };
-        let delta_str = if dc { format!("{:.1}ms", delta_ms) } else { "FAIL".to_string() };
-        let gossip_str = if gc { format!("{:.1}ms", gossip_ms) } else { "FAIL".to_string() };
+        let full_str = if fc {
+            format!("{:.1}ms", full_ms)
+        } else {
+            "FAIL".to_string()
+        };
+        let delta_str = if dc {
+            format!("{:.1}ms", delta_ms)
+        } else {
+            "FAIL".to_string()
+        };
+        let gossip_str = if gc {
+            format!("{:.1}ms", gossip_ms)
+        } else {
+            "FAIL".to_string()
+        };
 
         println!(
             "{:>5} {:>6} {:>12} {:>12} {:>12} {:>8} {:>8} {:>8}",
-            num_nodes, mutations_per_node,
-            full_str, delta_str, gossip_str,
-            full_rounds, delta_rounds, gossip_rounds,
+            num_nodes,
+            mutations_per_node,
+            full_str,
+            delta_str,
+            gossip_str,
+            full_rounds,
+            delta_rounds,
+            gossip_rounds,
         );
     }
 

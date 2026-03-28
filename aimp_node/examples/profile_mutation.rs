@@ -1,7 +1,6 @@
 ///! Mutation hot-path profiler — measures time spent in each step
 ///!
 ///! Run: cargo run --release --example profile_mutation
-
 use aimp_node::crdt::merkle_dag::MerkleCrdtEngine;
 use aimp_node::crypto::{Identity, SecurityFirewall};
 use aimp_node::protocol::{AimpData, OpCode};
@@ -22,7 +21,9 @@ fn main() {
         let data = format!("warmup-{}", i);
         let data_hash = SecurityFirewall::hash(data.as_bytes());
         let aimp_data = AimpData {
-            v: 1, op: OpCode::Ping, ttl: 3,
+            v: 1,
+            op: OpCode::Ping,
+            ttl: 3,
             origin_pubkey: identity.node_id(),
             vclock: BTreeMap::new(),
             payload: data.into_bytes(),
@@ -61,7 +62,9 @@ fn main() {
         // Step 3: Serialize AimpData
         let s3 = Instant::now();
         let aimp_data = AimpData {
-            v: 1, op: OpCode::Ping, ttl: 3,
+            v: 1,
+            op: OpCode::Ping,
+            ttl: 3,
             origin_pubkey: identity.node_id(),
             vclock: BTreeMap::new(),
             payload: data.into_bytes(),
@@ -91,33 +94,67 @@ fn main() {
     let n = ITERATIONS as f64;
 
     println!("Per-mutation breakdown (average over {ITERATIONS} ops):\n");
-    println!("  {:20} {:>8.1} ns  ({:>5.1}%)", "format!()",
-        t_format as f64 / n, t_format as f64 / t_total as f64 * 100.0);
-    println!("  {:20} {:>8.1} ns  ({:>5.1}%)", "BLAKE3 hash",
-        t_blake3 as f64 / n, t_blake3 as f64 / t_total as f64 * 100.0);
-    println!("  {:20} {:>8.1} ns  ({:>5.1}%)", "rmp_serde serialize",
-        t_serialize as f64 / n, t_serialize as f64 / t_total as f64 * 100.0);
-    println!("  {:20} {:>8.1} ns  ({:>5.1}%)", "Ed25519 sign",
-        t_sign as f64 / n, t_sign as f64 / t_total as f64 * 100.0);
-    println!("  {:20} {:>8.1} ns  ({:>5.1}%)", "BTreeMap vclock",
-        t_vclock as f64 / n, t_vclock as f64 / t_total as f64 * 100.0);
-    println!("  {:20} {:>8.1} ns  ({:>5.1}%)", "append_mutation()",
-        t_append as f64 / n, t_append as f64 / t_total as f64 * 100.0);
-    println!("  {:20} {:>8.1} ns", "─────────────────",
-        0.0);
-    println!("  {:20} {:>8.1} ns  (100%)", "TOTAL",
-        t_total as f64 / n);
+    println!(
+        "  {:20} {:>8.1} ns  ({:>5.1}%)",
+        "format!()",
+        t_format as f64 / n,
+        t_format as f64 / t_total as f64 * 100.0
+    );
+    println!(
+        "  {:20} {:>8.1} ns  ({:>5.1}%)",
+        "BLAKE3 hash",
+        t_blake3 as f64 / n,
+        t_blake3 as f64 / t_total as f64 * 100.0
+    );
+    println!(
+        "  {:20} {:>8.1} ns  ({:>5.1}%)",
+        "rmp_serde serialize",
+        t_serialize as f64 / n,
+        t_serialize as f64 / t_total as f64 * 100.0
+    );
+    println!(
+        "  {:20} {:>8.1} ns  ({:>5.1}%)",
+        "Ed25519 sign",
+        t_sign as f64 / n,
+        t_sign as f64 / t_total as f64 * 100.0
+    );
+    println!(
+        "  {:20} {:>8.1} ns  ({:>5.1}%)",
+        "BTreeMap vclock",
+        t_vclock as f64 / n,
+        t_vclock as f64 / t_total as f64 * 100.0
+    );
+    println!(
+        "  {:20} {:>8.1} ns  ({:>5.1}%)",
+        "append_mutation()",
+        t_append as f64 / n,
+        t_append as f64 / t_total as f64 * 100.0
+    );
+    println!("  {:20} {:>8.1} ns", "─────────────────", 0.0);
+    println!("  {:20} {:>8.1} ns  (100%)", "TOTAL", t_total as f64 / n);
 
     let overhead = t_total as f64 - t_sign as f64;
-    println!("\n  Ed25519 sign:     {:.1} µs ({:.1}%)", t_sign as f64 / n / 1000.0,
-        t_sign as f64 / t_total as f64 * 100.0);
-    println!("  Non-crypto total: {:.1} µs ({:.1}%)", overhead / n / 1000.0,
-        overhead / t_total as f64 * 100.0);
+    println!(
+        "\n  Ed25519 sign:     {:.1} µs ({:.1}%)",
+        t_sign as f64 / n / 1000.0,
+        t_sign as f64 / t_total as f64 * 100.0
+    );
+    println!(
+        "  Non-crypto total: {:.1} µs ({:.1}%)",
+        overhead / n / 1000.0,
+        overhead / t_total as f64 * 100.0
+    );
 
-    println!("\n  Theoretical max (sign only): {:.0} ops/sec",
-        1_000_000_000.0 / (t_sign as f64 / n));
-    println!("  Actual throughput:           {:.0} ops/sec",
-        1_000_000_000.0 / (t_total as f64 / n));
-    println!("  Efficiency:                  {:.1}%",
-        (t_sign as f64 / t_total as f64) * 100.0);
+    println!(
+        "\n  Theoretical max (sign only): {:.0} ops/sec",
+        1_000_000_000.0 / (t_sign as f64 / n)
+    );
+    println!(
+        "  Actual throughput:           {:.0} ops/sec",
+        1_000_000_000.0 / (t_total as f64 / n)
+    );
+    println!(
+        "  Efficiency:                  {:.1}%",
+        (t_sign as f64 / t_total as f64) * 100.0
+    );
 }

@@ -5,7 +5,6 @@
 ///!
 ///! Run: RUSTFLAGS="-C target-cpu=native" cargo run --release \
 ///!        --features fast-crypto --example bench_batch_multinode
-
 use aimp_node::crdt::merkle_dag::{DagNode, MerkleCrdtEngine};
 use aimp_node::crypto::{Identity, SecurityFirewall};
 use smallvec::SmallVec;
@@ -13,8 +12,12 @@ use std::collections::BTreeMap;
 use std::time::Instant;
 
 fn compute_batch_root(hashes: &[[u8; 32]]) -> [u8; 32] {
-    if hashes.is_empty() { return [0u8; 32]; }
-    if hashes.len() == 1 { return hashes[0]; }
+    if hashes.is_empty() {
+        return [0u8; 32];
+    }
+    if hashes.len() == 1 {
+        return hashes[0];
+    }
 
     let mut level: Vec<[u8; 32]> = hashes.to_vec();
     while level.len() > 1 {
@@ -37,11 +40,15 @@ fn compute_batch_root(hashes: &[[u8; 32]]) -> [u8; 32] {
 fn recompute_heads(engine: &mut MerkleCrdtEngine) {
     let mut has_children = rustc_hash::FxHashSet::default();
     for (_, node) in engine.arena.get_all_iter() {
-        for p in &node.parents { has_children.insert(*p); }
+        for p in &node.parents {
+            has_children.insert(*p);
+        }
     }
     engine.heads.clear();
     for (hash, _) in engine.arena.get_all_iter() {
-        if !has_children.contains(hash) { engine.heads.insert(*hash); }
+        if !has_children.contains(hash) {
+            engine.heads.insert(*hash);
+        }
     }
     engine.invalidate_root();
 }
@@ -103,9 +110,12 @@ fn run_scenario(num_nodes: usize, mutations_per_node: usize, batch_size: usize) 
 
         for i in 0..num_nodes {
             for j in 0..num_nodes {
-                if i == j { continue; }
+                if i == j {
+                    continue;
+                }
                 let src_nodes: Vec<([u8; 32], DagNode)> = engines[i]
-                    .arena.get_all_iter()
+                    .arena
+                    .get_all_iter()
                     .map(|(h, n)| (*h, n.clone()))
                     .collect();
                 let dst = &mut engines[j];
@@ -117,7 +127,9 @@ fn run_scenario(num_nodes: usize, mutations_per_node: usize, batch_size: usize) 
                         added = true;
                     }
                 }
-                if added { recompute_heads(dst); }
+                if added {
+                    recompute_heads(dst);
+                }
             }
         }
 

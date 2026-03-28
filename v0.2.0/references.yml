@@ -93,3 +93,66 @@ page1999:
   parent:
     type: periodical
     title: "Stanford InfoLab Technical Report"
+
+josang2016:
+  type: book
+  title: "Subjective Logic: A Formalism for Reasoning Under Uncertainty"
+  author:
+    - "Jøsang, Audun"
+  date: 2016
+  publisher: Springer
+
+shafer1976:
+  type: book
+  title: "A Mathematical Theory of Evidence"
+  author:
+    - Shafer, Glenn
+  date: 1976
+  publisher: Princeton University Press
+
+kamvar2003:
+  type: article
+  title: "The EigenTrust Algorithm for Reputation Management in P2P Networks"
+  author:
+    - Kamvar, Sepandar D.
+    - Schlosser, Mario T.
+    - Garcia-Molina, Hector
+  date: 2003
+  parent:
+    type: proceedings
+    title: "Proceedings of the 12th International Conference on World Wide Web (WWW)"
+
+buterin2019:
+  type: article
+  title: "Liberal Radicalism: A Flexible Design for Philanthropic Matching Funds"
+  author:
+    - Buterin, Vitalik
+    - Hitzig, Zoë
+    - Weyl, E. Glen
+  date: 2019
+  parent:
+    type: periodical
+    title: "Management Science"
+  volume: 65
+  issue: 11
+  page-range: 5171-5187
+
+rfc7009:
+  type: article
+  title: "OAuth 2.0 Token Revocation"
+  author:
+    - Lodderstedt, Torsten
+    - Dronia, Stefanie
+    - Scurtescu, Marius
+  date: 2013
+  serial-number: "RFC 7009"
+
+rfc9576:
+  type: article
+  title: "The Privacy Pass Architecture"
+  author:
+    - Davidson, Alex
+    - Iyengar, Jana
+    - Wood, Christopher A.
+  date: 2023
+  serial-number: "RFC 9576"

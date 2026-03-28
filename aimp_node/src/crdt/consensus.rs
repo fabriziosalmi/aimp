@@ -57,7 +57,11 @@ impl QuorumManager {
     /// behavior — the node intentionally forked its causal history.
     ///
     /// Returns `Some(proof)` if equivocation is detected, `None` if clean.
-    pub fn check_equivocation(&mut self, node: &DagNode, node_hash: Hash32) -> Option<EquivocationProof> {
+    pub fn check_equivocation(
+        &mut self,
+        node: &DagNode,
+        node_hash: Hash32,
+    ) -> Option<EquivocationProof> {
         for (origin, &tick) in &node.vclock {
             // Skip already-denied origins
             if self.denied.contains(origin) {

@@ -1,0 +1,24 @@
+
+
+
+=== L3 Hot-Path Profiling ===
+N = 1000 claims, 100 iterations averaged
+
+| Step                        | Time (µs) | % of Total |
+|-----------------------------|-----------|------------|
+| Base trust (rep × conf)     |     9.8 |      7.6%  |
+| Cycle detection (DFS)       |    40.1 |     31.2%  |
+| Trust propagation (2-pass)  |    76.9 |     59.8%  |
+| Classification              |     1.9 |      1.5%  |
+|-----------------------------|-----------|------------|
+| TOTAL                       |   128.7 |    100.0%  |
+
+Results: accepted=0, rejected=0, uncertain=1000
+
+| Metric              | Value   |
+|---------------------|---------|
+| Claim size (bytes)  |     256 |
+| Edge size (bytes)   |      12 |
+| Claims total        |    1000 |
+| Edges total         |    1331 |
+| Graph memory (est.) | 271972 B |

@@ -1,0 +1,46 @@
+
+
+
+=== L3 Scalability Benchmarks ===
+Averaged over 50 iterations
+
+--- Trust Propagation: Sparse (chain) ---
+| Configuration                            |     Latency | Vertices |      Edges |
+|------------------------------------------|-------------|----------|------------|
+| 10 claims, sparse                        |      1.2 µs |     10 V |        9 E |
+| 100 claims, sparse                       |      6.9 µs |    100 V |       99 E |
+| 1000 claims, sparse                      |     69.6 µs |   1000 V |      999 E |
+| 10000 claims, sparse                     |    861.9 µs |  10000 V |     9999 E |
+
+--- Trust Propagation: Dense ---
+| Configuration                            |     Latency | Vertices |      Edges |
+|------------------------------------------|-------------|----------|------------|
+| 10 claims, dense (45E)                   |      2.0 µs |     10 V |       45 E |
+| 50 claims, dense (1225E)                 |     56.8 µs |     50 V |     1225 E |
+| 100 claims, dense (4950E)                |    225.7 µs |    100 V |     4950 E |
+| 200 claims, dense (19900E)               |   1031.5 µs |    200 V |    19900 E |
+
+--- Cycle Detection (increasing cycle density) ---
+| Configuration                            |     Latency | Vertices |      Edges |
+|------------------------------------------|-------------|----------|------------|
+| 100-node ring (1 cycle)                  |      9.1 µs |    100 V |      100 E |
+| 500-node ring (1 cycle)                  |     19.8 µs |    500 V |      500 E |
+| 1000-node ring (1 cycle)                 |     36.8 µs |   1000 V |     1000 E |
+
+--- Full Belief Engine Pipeline ---
+| Configuration                            |     Latency | Vertices |      Edges |
+|------------------------------------------|-------------|----------|------------|
+| 10 claims, mixed graph                   |      1.4 µs |     10 V |        9 E |
+| 100 claims, mixed graph                  |      7.6 µs |    100 V |       99 E |
+| 1000 claims, mixed graph                 |     90.1 µs |   1000 V |      999 E |
+| 5000 claims, mixed graph                 |    507.0 µs |   5000 V |     4999 E |
+
+--- Memory Footprint ---
+| Metric                | Value       |
+|-----------------------|-------------|
+| sizeof(Claim)         |     256 B   |
+| sizeof(EpistemicEdge)  |      12 B   |
+| sizeof(LogOdds)        |       4 B   |
+| sizeof(Reputation)     |       2 B   |
+| sizeof(BeliefState)    |      72 B   |
+| sizeof(KnowledgeGraph) |      56 B   |

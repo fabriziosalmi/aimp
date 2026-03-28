@@ -7,7 +7,6 @@
 ///!
 ///! Run: RUSTFLAGS="-C target-cpu=native" cargo run --release \
 ///!        --features fast-crypto --example bench_memory_wall
-
 use aimp_node::crdt::merkle_dag::MerkleCrdtEngine;
 use aimp_node::crypto::{Identity, SecurityFirewall};
 use std::collections::BTreeMap;
@@ -44,11 +43,7 @@ fn main() {
 
     for i in 0..MAX_MUTATIONS {
         // Minimal mutation: 3-byte data, batch signing
-        let data_hash = SecurityFirewall::hash(&[
-            (i >> 16) as u8,
-            (i >> 8) as u8,
-            i as u8,
-        ]);
+        let data_hash = SecurityFirewall::hash(&[(i >> 16) as u8, (i >> 8) as u8, i as u8]);
 
         batch_hashes.push(data_hash);
         let sig = if batch_hashes.len() >= batch_size {
@@ -120,13 +115,16 @@ fn main() {
     let total_rate = dag_size as f64 / total_elapsed.as_secs_f64();
 
     println!("\n=================================================");
-    println!("Final: {} DAG nodes, {:.1}s, {:.0}K ops/sec avg",
+    println!(
+        "Final: {} DAG nodes, {:.1}s, {:.0}K ops/sec avg",
         dag_size,
         total_elapsed.as_secs_f64(),
         total_rate / 1000.0,
     );
-    println!("Memory: ~{:.1} MB ({} nodes × ~200 bytes)",
+    println!(
+        "Memory: ~{:.1} MB ({} nodes × ~200 bytes)",
         dag_size as f64 * 200.0 / 1024.0 / 1024.0,
-        dag_size);
+        dag_size
+    );
     println!("=================================================");
 }

@@ -1,0 +1,42 @@
+
+
+
+=== SOTA Comparison: L3 vs Subjective Logic vs Dempster-Shafer ===
+
+--- Evidence Aggregation (N items) ---
+| N    | L3 (ns)  | Subj.Logic (ns) | Dempster-Shafer (ns) | L3 vs SL | L3 vs DS |
+|------|----------|------------------|----------------------|----------|----------|
+|   10 |      1.3 |             11.4 |                 17.3 |     8.6x |    13.1x |
+|  100 |      5.6 |            354.9 |                530.0 |    63.3x |    94.5x |
+| 1000 |     43.4 |           4440.4 |               6085.1 |   102.2x |   140.1x |
+
+--- Determinism Across Runs ---
+| Framework        | Run 1 result     | Run 2 result     | Identical? |
+|------------------|------------------|------------------|------------|
+| L3 (log-odds)    |             6700 |             6700 |        YES |
+| Subjective Logic |     0.8734177215 |     0.8734177215 |       YES* |
+| Dempster-Shafer  |     0.9083469722 |     0.9083469722 |       YES* |
+
+* Float equality on same machine/same code path. May differ across architectures.
+  L3 uses i32 arithmetic — guaranteed bit-identical on ARM64, x86_64, RISC-V, WASM.
+
+--- Trust Propagation: 100-node graph ---
+| Framework        | Propagation (µs) | Method                    |
+|------------------|------------------|---------------------------|
+| L3 (AIMP)        |            5.576 | Two-pass O(V+E), i32      |
+| Subjective Logic |            0.000 | Discount chain, f64       |
+| Dempster-Shafer  |                — | N/A (no trust model)      |
+
+--- Feature Comparison ---
+| Property              | L3 (AIMP)  | Subj. Logic | Dempster-Shafer |
+|-----------------------|------------|-------------|-----------------|
+| Arithmetic            | i32 (det.) | f64         | f64             |
+| BFT compatible        | YES        | NO*         | NO*             |
+| CRDT integration      | Native     | External    | External        |
+| Cycle handling         | DFS zeroing| Discount    | N/A             |
+| Sybil resistance      | WoT+rep=0  | None        | None            |
+| Contradiction damping | Configurable| Fusion      | Dempster's rule |
+| Known pathologies     | None       | Vacuous fusion| Zadeh paradox  |
+
+* IEEE 754 floats may produce different results on different architectures,
+  making them unsafe for BFT consensus where all nodes must agree exactly.

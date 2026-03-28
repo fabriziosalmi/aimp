@@ -1,0 +1,22 @@
+
+
+
+  --> aimp_node/tests/epistemic_proptests.rs:19:4
+   |
+19 | fn arb_claim() -> impl Strategy<Value = Claim> {
+   |    ^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+     Running tests/epistemic_proptests.rs (target/debug/deps/epistemic_proptests-3f1edc7ba5b93fbd)
+
+running 7 tests
+test belief_engine_deterministic ... ok
+test logodds_aggregate_associative ... ok
+test logodds_aggregate_commutative ... ok
+test logodds_no_overflow_panic ... ok
+test reducer_commutativity ... ok
+test reducer_idempotency ... ok
+test trust_propagation_deterministic ... ok
+
+

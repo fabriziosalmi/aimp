@@ -4,7 +4,6 @@
 ///! partitions) and measures CRDT convergence behavior.
 ///!
 ///! Run: cargo run --release --manifest-path aimp_node/Cargo.toml --example bench_netem
-
 use aimp_node::crdt::merkle_dag::{DagNode, MerkleCrdtEngine};
 use aimp_node::crypto::{Identity, SecurityFirewall};
 use aimp_node::protocol::{AimpData, OpCode};
@@ -151,7 +150,13 @@ fn run_scenario(
     for (i, engine) in engines.iter_mut().enumerate() {
         for tick in 0..MUTATIONS_PER_NODE {
             let data = format!("netem-n{}-m{}", i, tick);
-            create_mutation(engine, &identities[i], data.as_bytes(), &format!("n{i}"), tick + 1);
+            create_mutation(
+                engine,
+                &identities[i],
+                data.as_bytes(),
+                &format!("n{i}"),
+                tick + 1,
+            );
         }
     }
 
@@ -209,7 +214,13 @@ fn run_partition_scenario(
     // Phase 1: shared baseline (10 mutations from node 0, synced to all)
     for tick in 0..10 {
         let data = format!("base-{}", tick);
-        create_mutation(&mut engines[0], &identities[0], data.as_bytes(), "n0", tick + 1);
+        create_mutation(
+            &mut engines[0],
+            &identities[0],
+            data.as_bytes(),
+            "n0",
+            tick + 1,
+        );
     }
     for j in 1..NUM_NODES {
         let src_nodes: Vec<_> = engines[0]
@@ -290,13 +301,8 @@ fn run_partition_scenario(
 
     loop {
         rounds += 1;
-        let (transferred, _) = sync_round_with_impairment(
-            &mut engines,
-            loss_pct_during_merge,
-            0,
-            0,
-            &mut rng,
-        );
+        let (transferred, _) =
+            sync_round_with_impairment(&mut engines, loss_pct_during_merge, 0, 0, &mut rng);
         total_transferred += transferred;
 
         let (converged, distinct) = check_converged(&mut engines);
@@ -341,7 +347,13 @@ fn main() {
         run_scenario("50ms latency", 0.0, 50_000, 0, 50),
         run_scenario("100ms latency + 20ms jitter", 0.0, 100_000, 20_000, 50),
         run_scenario("10% loss + 50ms latency", 10.0, 50_000, 10_000, 50),
-        run_scenario("20% loss + 100ms latency + 30ms jitter", 20.0, 100_000, 30_000, 50),
+        run_scenario(
+            "20% loss + 100ms latency + 30ms jitter",
+            20.0,
+            100_000,
+            30_000,
+            50,
+        ),
     ];
 
     // Partition scenarios
@@ -354,12 +366,15 @@ fn main() {
     ];
 
     // Print results table
-    println!("\n{:<50} {:>8} {:>8} {:>10} {:>12}",
-        "Scenario", "Conv?", "Rounds", "Time", "Transferred");
+    println!(
+        "\n{:<50} {:>8} {:>8} {:>10} {:>12}",
+        "Scenario", "Conv?", "Rounds", "Time", "Transferred"
+    );
     println!("{}", "-".repeat(92));
 
     for r in &results {
-        println!("{:<50} {:>8} {:>8} {:>9.3}ms {:>12}",
+        println!(
+            "{:<50} {:>8} {:>8} {:>9.3}ms {:>12}",
             r.scenario,
             if r.converged { "YES" } else { "NO" },
             r.rounds,
@@ -368,12 +383,15 @@ fn main() {
         );
     }
 
-    println!("\n{:<50} {:>8} {:>8} {:>10} {:>12}",
-        "Partition Scenario", "Conv?", "Rounds", "Merge Time", "Transferred");
+    println!(
+        "\n{:<50} {:>8} {:>8} {:>10} {:>12}",
+        "Partition Scenario", "Conv?", "Rounds", "Merge Time", "Transferred"
+    );
     println!("{}", "-".repeat(92));
 
     for r in &partition_results {
-        println!("{:<50} {:>8} {:>8} {:>9.3}ms {:>12}",
+        println!(
+            "{:<50} {:>8} {:>8} {:>9.3}ms {:>12}",
             r.scenario,
             if r.converged { "YES" } else { "NO" },
             r.rounds,
@@ -392,7 +410,8 @@ fn main() {
             0,
             500,
         );
-        println!("  {:<40} conv={:<5} rounds={:<4} time={:.3}ms",
+        println!(
+            "  {:<40} conv={:<5} rounds={:<4} time={:.3}ms",
             r.scenario,
             if r.converged { "YES" } else { "NO" },
             r.rounds,

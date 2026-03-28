@@ -7,7 +7,6 @@
 ///!   3. Partition/merge convergence time
 ///!
 ///! Run: cargo run --release --manifest-path aimp_node/Cargo.toml --example bench_convergence
-
 use aimp_node::crdt::merkle_dag::{DagNode, MerkleCrdtEngine};
 use aimp_node::crypto::{Identity, SecurityFirewall};
 use aimp_node::protocol::{AimpData, OpCode};
@@ -102,7 +101,13 @@ fn main() {
         for (i, engine) in engines.iter_mut().enumerate() {
             for tick in 0..mutations_per_node {
                 let data = format!("n{}-m{}", i, tick);
-                create_mutation(engine, &identities[i], data.as_bytes(), &format!("n{i}"), tick + 1);
+                create_mutation(
+                    engine,
+                    &identities[i],
+                    data.as_bytes(),
+                    &format!("n{i}"),
+                    tick + 1,
+                );
             }
         }
         let elapsed = start.elapsed();
@@ -132,12 +137,21 @@ fn main() {
         for (i, engine) in engines.iter_mut().enumerate() {
             for tick in 0..mutations_per_node {
                 let data = format!("conv-n{}-m{}", i, tick);
-                create_mutation(engine, &identities[i], data.as_bytes(), &format!("n{i}"), tick + 1);
+                create_mutation(
+                    engine,
+                    &identities[i],
+                    data.as_bytes(),
+                    &format!("n{i}"),
+                    tick + 1,
+                );
             }
         }
 
         let roots_before: Vec<_> = engines.iter_mut().map(|e| e.get_merkle_root()).collect();
-        let distinct_before = roots_before.iter().collect::<std::collections::HashSet<_>>().len();
+        let distinct_before = roots_before
+            .iter()
+            .collect::<std::collections::HashSet<_>>()
+            .len();
         println!("  Distinct roots before sync: {distinct_before}");
 
         // Full-mesh anti-entropy sync
@@ -196,7 +210,10 @@ fn main() {
 
             if distinct == 1 {
                 let elapsed = sync_start.elapsed();
-                println!("  CONVERGED in {:.3}ms ({rounds} rounds)", elapsed.as_secs_f64() * 1000.0);
+                println!(
+                    "  CONVERGED in {:.3}ms ({rounds} rounds)",
+                    elapsed.as_secs_f64() * 1000.0
+                );
                 println!("  Nodes transferred: {total_nodes_transferred}");
                 println!("  DAG nodes per engine: {}", engines[0].arena.len());
                 println!("  Heads per engine: {}", engines[0].heads.len());
@@ -207,8 +224,12 @@ fn main() {
             if transferred_this_round == 0 || rounds > 10 {
                 println!("  STALLED after {rounds} rounds ({distinct} distinct roots, {transferred_this_round} transferred last round)");
                 for (i, root) in roots.iter().enumerate() {
-                    println!("    node{i}: {} (arena={}, heads={})",
-                        hex::encode(root), engines[i].arena.len(), engines[i].heads.len());
+                    println!(
+                        "    node{i}: {} (arena={}, heads={})",
+                        hex::encode(root),
+                        engines[i].arena.len(),
+                        engines[i].heads.len()
+                    );
                 }
                 break;
             }
@@ -233,10 +254,20 @@ fn main() {
         // Shared baseline: node 0 creates 10 mutations, synced to all
         for tick in 0..10usize {
             let data = format!("shared-{}", tick);
-            create_mutation(&mut engines[0], &identities[0], data.as_bytes(), "n0", tick + 1);
+            create_mutation(
+                &mut engines[0],
+                &identities[0],
+                data.as_bytes(),
+                "n0",
+                tick + 1,
+            );
         }
         for j in 1..num_nodes {
-            let src_nodes: Vec<_> = engines[0].arena.get_all_iter().map(|(h, n)| (*h, n.clone())).collect();
+            let src_nodes: Vec<_> = engines[0]
+                .arena
+                .get_all_iter()
+                .map(|(h, n)| (*h, n.clone()))
+                .collect();
             let dst = &mut engines[j];
             for (hash, node) in &src_nodes {
                 if !dst.arena.contains(hash) {
@@ -245,18 +276,25 @@ fn main() {
             }
             let mut has_children = std::collections::HashSet::new();
             for (_, node) in dst.arena.get_all_iter() {
-                for p in &node.parents { has_children.insert(*p); }
+                for p in &node.parents {
+                    has_children.insert(*p);
+                }
             }
             dst.heads.clear();
             for (hash, _) in dst.arena.get_all_iter() {
-                if !has_children.contains(hash) { dst.heads.insert(*hash); }
+                if !has_children.contains(hash) {
+                    dst.heads.insert(*hash);
+                }
             }
             dst.invalidate_root();
         }
 
         // Verify baseline convergence
         let roots: Vec<_> = engines.iter_mut().map(|e| e.get_merkle_root()).collect();
-        assert_eq!(roots.iter().collect::<std::collections::HashSet<_>>().len(), 1);
+        assert_eq!(
+            roots.iter().collect::<std::collections::HashSet<_>>().len(),
+            1
+        );
         println!("  Baseline converged: {}", hex::encode(roots[0]));
 
         // PARTITION: Group A [0,1] and Group B [2,3,4]
@@ -264,44 +302,87 @@ fn main() {
 
         for tick in 0..mutations_per_group {
             let data = format!("partA-{}", tick);
-            create_mutation(&mut engines[0], &identities[0], data.as_bytes(), "n0", 100 + tick);
+            create_mutation(
+                &mut engines[0],
+                &identities[0],
+                data.as_bytes(),
+                "n0",
+                100 + tick,
+            );
         }
         // Sync within A
         {
-            let src_nodes: Vec<_> = engines[0].arena.get_all_iter().map(|(h, n)| (*h, n.clone())).collect();
+            let src_nodes: Vec<_> = engines[0]
+                .arena
+                .get_all_iter()
+                .map(|(h, n)| (*h, n.clone()))
+                .collect();
             let dst = &mut engines[1];
             for (hash, node) in &src_nodes {
-                if !dst.arena.contains(hash) { dst.arena.insert(*hash, node.clone()); }
+                if !dst.arena.contains(hash) {
+                    dst.arena.insert(*hash, node.clone());
+                }
             }
             let mut has_children = std::collections::HashSet::new();
-            for (_, node) in dst.arena.get_all_iter() { for p in &node.parents { has_children.insert(*p); } }
+            for (_, node) in dst.arena.get_all_iter() {
+                for p in &node.parents {
+                    has_children.insert(*p);
+                }
+            }
             dst.heads.clear();
-            for (hash, _) in dst.arena.get_all_iter() { if !has_children.contains(hash) { dst.heads.insert(*hash); } }
+            for (hash, _) in dst.arena.get_all_iter() {
+                if !has_children.contains(hash) {
+                    dst.heads.insert(*hash);
+                }
+            }
             dst.invalidate_root();
         }
 
         for tick in 0..mutations_per_group {
             let data = format!("partB-{}", tick);
-            create_mutation(&mut engines[2], &identities[2], data.as_bytes(), "n2", 100 + tick);
+            create_mutation(
+                &mut engines[2],
+                &identities[2],
+                data.as_bytes(),
+                "n2",
+                100 + tick,
+            );
         }
         // Sync within B
         for j in [3usize, 4] {
-            let src_nodes: Vec<_> = engines[2].arena.get_all_iter().map(|(h, n)| (*h, n.clone())).collect();
+            let src_nodes: Vec<_> = engines[2]
+                .arena
+                .get_all_iter()
+                .map(|(h, n)| (*h, n.clone()))
+                .collect();
             let dst = &mut engines[j];
             for (hash, node) in &src_nodes {
-                if !dst.arena.contains(hash) { dst.arena.insert(*hash, node.clone()); }
+                if !dst.arena.contains(hash) {
+                    dst.arena.insert(*hash, node.clone());
+                }
             }
             let mut has_children = std::collections::HashSet::new();
-            for (_, node) in dst.arena.get_all_iter() { for p in &node.parents { has_children.insert(*p); } }
+            for (_, node) in dst.arena.get_all_iter() {
+                for p in &node.parents {
+                    has_children.insert(*p);
+                }
+            }
             dst.heads.clear();
-            for (hash, _) in dst.arena.get_all_iter() { if !has_children.contains(hash) { dst.heads.insert(*hash); } }
+            for (hash, _) in dst.arena.get_all_iter() {
+                if !has_children.contains(hash) {
+                    dst.heads.insert(*hash);
+                }
+            }
             dst.invalidate_root();
         }
 
         let partition_elapsed = partition_start.elapsed();
         let roots: Vec<_> = engines.iter_mut().map(|e| e.get_merkle_root()).collect();
         let distinct = roots.iter().collect::<std::collections::HashSet<_>>().len();
-        println!("  Partition phase: {:.3}ms ({mutations_per_group} mutations/group)", partition_elapsed.as_secs_f64() * 1000.0);
+        println!(
+            "  Partition phase: {:.3}ms ({mutations_per_group} mutations/group)",
+            partition_elapsed.as_secs_f64() * 1000.0
+        );
         println!("  Distinct roots after partition: {distinct}");
 
         // MERGE: full mesh sync
@@ -314,8 +395,14 @@ fn main() {
 
             for i in 0..num_nodes {
                 for j in 0..num_nodes {
-                    if i == j { continue; }
-                    let src_nodes: Vec<([u8; 32], DagNode)> = engines[i].arena.get_all_iter().map(|(h, n)| (*h, n.clone())).collect();
+                    if i == j {
+                        continue;
+                    }
+                    let src_nodes: Vec<([u8; 32], DagNode)> = engines[i]
+                        .arena
+                        .get_all_iter()
+                        .map(|(h, n)| (*h, n.clone()))
+                        .collect();
                     let dst = &mut engines[j];
                     for (hash, node) in &src_nodes {
                         if !dst.arena.contains(hash) {
@@ -325,9 +412,17 @@ fn main() {
                     }
                     if transferred > 0 {
                         let mut has_children = std::collections::HashSet::new();
-                        for (_, node) in dst.arena.get_all_iter() { for p in &node.parents { has_children.insert(*p); } }
+                        for (_, node) in dst.arena.get_all_iter() {
+                            for p in &node.parents {
+                                has_children.insert(*p);
+                            }
+                        }
                         dst.heads.clear();
-                        for (hash, _) in dst.arena.get_all_iter() { if !has_children.contains(hash) { dst.heads.insert(*hash); } }
+                        for (hash, _) in dst.arena.get_all_iter() {
+                            if !has_children.contains(hash) {
+                                dst.heads.insert(*hash);
+                            }
+                        }
                         dst.invalidate_root();
                     }
                 }
@@ -338,7 +433,10 @@ fn main() {
 
             if distinct == 1 {
                 let elapsed = merge_start.elapsed();
-                println!("  MERGED in {:.3}ms ({rounds} rounds)", elapsed.as_secs_f64() * 1000.0);
+                println!(
+                    "  MERGED in {:.3}ms ({rounds} rounds)",
+                    elapsed.as_secs_f64() * 1000.0
+                );
                 println!("  Final root: {}", hex::encode(roots[0]));
                 println!("  DAG nodes per engine: {}", engines[0].arena.len());
                 break;
@@ -392,9 +490,14 @@ fn main() {
         println!("  Sign:   {:.1} µs/op", sign_per / 1000.0);
         println!("  Verify: {:.1} µs/op", verify_per / 1000.0);
         println!("  Total:  {:.1} µs/msg", total_per / 1000.0);
-        println!("  Max theoretical throughput: {:.0} msg/sec per peer", max_throughput);
-        println!("  At rate_limit=50/sec: {:.3}% of crypto budget",
-            50.0 / max_throughput * 100.0);
+        println!(
+            "  Max theoretical throughput: {:.0} msg/sec per peer",
+            max_throughput
+        );
+        println!(
+            "  At rate_limit=50/sec: {:.3}% of crypto budget",
+            50.0 / max_throughput * 100.0
+        );
     }
 
     println!("\n========================================");

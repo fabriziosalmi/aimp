@@ -68,7 +68,10 @@ impl DagArena {
     /// Retain only nodes whose hashes are in the given set.
     /// Removes all other nodes from both the slab and the index.
     /// Returns the number of nodes removed.
-    pub fn retain<S: std::hash::BuildHasher>(&mut self, keep: &std::collections::HashSet<Hash32, S>) -> usize {
+    pub fn retain<S: std::hash::BuildHasher>(
+        &mut self,
+        keep: &std::collections::HashSet<Hash32, S>,
+    ) -> usize {
         let to_remove: Vec<(Hash32, usize)> = self
             .hash_to_index
             .iter()

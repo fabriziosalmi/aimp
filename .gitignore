@@ -33,3 +33,5 @@ TODO.md
 formal/states/
 formal/*_TTrace_*
 .DS_Store
+
+v0.2.0/PROMPT_*.md

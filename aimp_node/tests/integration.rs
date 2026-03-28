@@ -264,11 +264,8 @@ fn test_arena_allocation_and_soa_layout() {
     assert_eq!(arena.len(), 101); // 1 original + 100 new
 
     // Retain only a subset
-    let keep_hashes: std::collections::HashSet<_> = arena
-        .get_all_iter()
-        .take(10)
-        .map(|(h, _)| *h)
-        .collect();
+    let keep_hashes: std::collections::HashSet<_> =
+        arena.get_all_iter().take(10).map(|(h, _)| *h).collect();
     let removed = arena.retain(&keep_hashes);
     assert_eq!(removed, 91);
     assert_eq!(arena.len(), 10);
@@ -289,12 +286,7 @@ fn test_gc_epoch_pruning() {
     for i in 0..10u64 {
         let mut vc = BTreeMap::new();
         vc.insert("n".to_string(), i + 1);
-        engine.append_mutation(
-            SecurityFirewall::hash(&i.to_le_bytes()),
-            sig,
-            vc,
-            None,
-        );
+        engine.append_mutation(SecurityFirewall::hash(&i.to_le_bytes()), sig, vc, None);
     }
 
     // GC should have triggered at mutation 5 and again at mutation 10
@@ -317,12 +309,7 @@ fn test_gc_preserves_heads() {
     for i in 0..6u64 {
         let mut vc = BTreeMap::new();
         vc.insert("n".to_string(), i + 1);
-        last_hash = engine.append_mutation(
-            SecurityFirewall::hash(&i.to_le_bytes()),
-            sig,
-            vc,
-            None,
-        );
+        last_hash = engine.append_mutation(SecurityFirewall::hash(&i.to_le_bytes()), sig, vc, None);
     }
 
     // The most recent mutation should always be a head

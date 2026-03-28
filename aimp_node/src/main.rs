@@ -9,11 +9,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
-use aimp_node::decision_engine::DecisionDispatcher;
 use aimp_node::config;
 use aimp_node::crdt::{self, CrdtActor, CrdtHandle, PersistentStore};
 use aimp_node::crypto::Identity;
 use aimp_node::dashboard::Dashboard;
+use aimp_node::decision_engine::DecisionDispatcher;
 use aimp_node::event::metrics::GLOBAL_METRICS;
 use aimp_node::event::SystemEvent;
 use aimp_node::network::GossipNetwork;
@@ -251,7 +251,10 @@ async fn main() -> aimp_node::AimpResult<()> {
 
     if args.headless {
         // Headless mode: log to stderr, wait for signal
-        eprintln!("[AIMP] Node {} running headless on UDP:{}", node_display_id, args.port);
+        eprintln!(
+            "[AIMP] Node {} running headless on UDP:{}",
+            node_display_id, args.port
+        );
 
         // Drain log channel to stderr in headless mode
         let mut log_rx = log_rx;
@@ -280,8 +283,9 @@ async fn main() -> aimp_node::AimpResult<()> {
 
         let shutdown_log_tx = log_tx.clone();
         let shutdown_handle = tokio::spawn(async move {
-            let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .expect("Failed to register SIGTERM handler");
+            let mut sigterm =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("Failed to register SIGTERM handler");
 
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
@@ -343,11 +347,7 @@ async fn handle_infer(data: AimpData, state: Arc<NodeState>) {
         })
         .await;
 
-    if let Ok(res) = state
-        .decision_engine
-        .run_evaluation(&prompt, "{}")
-        .await
-    {
+    if let Ok(res) = state.decision_engine.run_evaluation(&prompt, "{}").await {
         let mut ordered_map = BTreeMap::new();
         ordered_map.insert("action".to_string(), serde_json::json!(res.action_required));
         ordered_map.insert("status".to_string(), serde_json::json!(res.status));

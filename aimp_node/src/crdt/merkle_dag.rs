@@ -23,8 +23,8 @@ pub struct DagNode {
     pub signature: [u8; 64], // Cryptographic proof of origin
     #[serde(with = "serde_bytes")]
     pub data_hash: Hash32, // Deterministic payload hash
-    pub vclock: BTreeMap<String, u64>, // Structural causality
-    pub evidence: Option<AiEvidence>, // Optional decision audit trail
+    pub vclock: BTreeMap<String, u64>,  // Structural causality
+    pub evidence: Option<AiEvidence>,   // Optional decision audit trail
 }
 
 impl DagNode {

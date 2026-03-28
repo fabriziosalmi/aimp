@@ -15,7 +15,6 @@
 ///! Run: cargo run --release --example bench_batch_signing
 ///!      RUSTFLAGS="-C target-cpu=native" cargo run --release \
 ///!        --features fast-crypto --example bench_batch_signing
-
 use aimp_node::crdt::merkle_dag::MerkleCrdtEngine;
 use aimp_node::crypto::{Identity, SecurityFirewall};
 use aimp_node::protocol::{AimpData, OpCode};
@@ -40,11 +39,7 @@ impl BatchSigner {
 
     /// Add a mutation hash to the current batch.
     /// Returns Some(batch_root_signature) when the batch is full.
-    fn add_mutation(
-        &mut self,
-        mutation_hash: [u8; 32],
-        identity: &Identity,
-    ) -> Option<[u8; 64]> {
+    fn add_mutation(&mut self, mutation_hash: [u8; 32], identity: &Identity) -> Option<[u8; 64]> {
         self.pending_hashes.push(mutation_hash);
 
         if self.pending_hashes.len() >= self.batch_size {
@@ -189,7 +184,10 @@ fn main() {
 
         println!("  Time:       {:.3}ms", elapsed.as_secs_f64() * 1000.0);
         println!("  Throughput: {:.0} ops/sec", rate);
-        println!("  Per-op:     {:.1} µs", elapsed.as_secs_f64() * 1_000_000.0 / num_mutations as f64);
+        println!(
+            "  Per-op:     {:.1} µs",
+            elapsed.as_secs_f64() * 1_000_000.0 / num_mutations as f64
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -229,8 +227,14 @@ fn main() {
 
         println!("  Time:       {:.3}ms", elapsed.as_secs_f64() * 1000.0);
         println!("  Throughput: {:.0} ops/sec", rate);
-        println!("  Per-op:     {:.1} µs (amortized sign: {:.2} µs)", per_op, amortized_sign);
-        println!("  Batches:    {} ({} mutations/batch)", batcher.batches_signed, batch_size);
+        println!(
+            "  Per-op:     {:.1} µs (amortized sign: {:.2} µs)",
+            per_op, amortized_sign
+        );
+        println!(
+            "  Batches:    {} ({} mutations/batch)",
+            batcher.batches_signed, batch_size
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -241,7 +245,9 @@ fn main() {
         let batch_size = 10;
         let mut hashes = Vec::new();
         for i in 0..batch_size {
-            hashes.push(SecurityFirewall::hash(format!("proof-test-{}", i).as_bytes()));
+            hashes.push(SecurityFirewall::hash(
+                format!("proof-test-{}", i).as_bytes(),
+            ));
         }
 
         let root = BatchSigner::compute_batch_root(&hashes);
@@ -257,10 +263,15 @@ fn main() {
         }
 
         if all_valid {
-            println!("  All {} Merkle inclusion proofs verified correctly.", batch_size);
-            println!("  Proof size: {} hashes ({} bytes per mutation)",
+            println!(
+                "  All {} Merkle inclusion proofs verified correctly.",
+                batch_size
+            );
+            println!(
+                "  Proof size: {} hashes ({} bytes per mutation)",
                 (batch_size as f64).log2().ceil() as usize,
-                (batch_size as f64).log2().ceil() as usize * 32);
+                (batch_size as f64).log2().ceil() as usize * 32
+            );
         }
 
         // Verify tampered proof fails
