@@ -341,6 +341,19 @@ Auto-edges are `RawEpistemicEdge` like any manual edge. They enter
 the knowledge graph through the same `build_from_claims()` path and
 participate in trust propagation identically.
 
+=== Edge Lifecycle: Materialization via L2
+
+Auto-generated edges, once computed at the epoch boundary, are
+_materialized_ and broadcast via L2 gossip identically to manual
+edges. Because their generation is BFT-deterministic, redundant
+emission by honest nodes simply triggers CRDT idempotent set-union
+(duplicate edges are deduplicated natively by L2). This ensures that
+the generated topology _survives L2 garbage collection_ of the
+underlying claims, resolving gracefully via Holographic Routing
+(v0.2.0) to any materialized Summaries. A node joining the network
+at epoch $N+1$ receives the materialized edges via anti-entropy sync
+and does not need to re-scan the (now GC'd) claims from epoch $N-1$.
+
 == Orthogonality with CorrelationCell
 
 `CorrelationCell` (v0.3.0) and `QuantizedEmbedding` (v0.4.0) serve
@@ -497,6 +510,35 @@ and random embeddings (expected Hamming distance $approx 128$):
 The dead zone captures $> 99.99%$ of random pairs, ensuring the
 auto-generated graph is sparse and meaningful.
 
+== Attack 5: Negation Blindness (Semantic Inversion)
+
+*Attack.* Standard embedding models (including MiniLM, E5, BGE) are
+notoriously poor at capturing logical negation. "The server is online"
+and "The server is NOT online" often produce cosine similarity $> 0.95$
+($d_H <= 10$), because 90% of the semantic context is shared. A
+Byzantine node exploits this by flooding claims that are syntactically
+similar but logically inverted, generating fake Supports edges between
+contradictory propositions.
+
+*Defense (Reputation as Epistemic Gatekeeper).* Auto-generated edges
+do not bypass the Web of Trust. The raw Hamming distance is merely
+the _topological trigger_ --- it determines whether an edge _exists_.
+The _epistemic weight_ of that edge is gated by two independent
+factors: (a) the edge strength (linear in distance: a $d = 10$ edge
+has strength 7000 bps, not 10000); and (b) the author's reputation,
+which scales all trust flow in Pass 1. A Byzantine node exploiting
+negation blindness still requires high delegated reputation for
+the fake Supports edges to influence the Markovian flow.
+Additionally, honest nodes observing the logical inversion can
+emit manual Contradicts edges, triggering Pass 2 penalty damping.
+
+This is a known limitation of embedding-based similarity and is
+not specific to AIMP. We document it explicitly: L3's autonomous
+topology is _as good as its canonical model_. Future canonical
+models with improved negation sensitivity (e.g., NLI-trained
+embeddings) will directly improve auto-edge accuracy without
+protocol changes --- only `embedding_version` increments.
+
 = Limitations and Future Work
 
 + *Canonical model dependency.* The quality of auto-generated edges
@@ -516,6 +558,19 @@ auto-generated graph is sparse and meaningful.
   for general-purpose text similarity. Domain-specific applications
   (e.g., sensor readings with known noise profiles) may require
   different thresholds.
+
++ *Transient $k$-cap violation under partition.* The $O(N dot k)$
+  edge density bound holds strictly for epoch-aligned batches
+  evaluated on fully converged state. Under asynchronous network
+  partitions, CRDT set-union of independently generated auto-edges
+  may temporarily cause specific claims to exceed the $k$-cap (e.g.,
+  Partition A generates 10 edges for claim X, Partition B generates
+  10 different edges for claim X; after merge, X has 20). This
+  transient density spike resolves harmlessly: the Markovian flow
+  normalization (Pass 1) divides trust proportionally across the
+  _larger_ outgoing edge set, ensuring epistemic mass conservation
+  regardless of temporary topological inflation. The next epoch
+  boundary re-evaluates and re-applies the cap on the merged state.
 
 + *No cross-version edges.* Claims with different `embedding_version`
   never produce auto-edges. During model transitions, the knowledge
