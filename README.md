@@ -1,13 +1,25 @@
-# AIMP (AI Mesh Protocol)
+# AIMP — AI Mesh Protocol
 
-**[Paper 1 — L1/L2 (v0.1.0): Merkle-CRDT Protocol](https://www.researchgate.net/publication/403127328_AIMP_AI_Mesh_Protocol_Design_and_Evaluation_of_a_Serverless_Merkle-CRDT_Protocol_for_Edge_Agent_Synchronization)** |
-**[Paper 2 — L3 (v0.2.0): Epistemic Layer](https://www.researchgate.net/publication/403247988)** |
-**[Paper 3 — L3 (v0.3.0): Correlation-Aware Aggregation](https://www.researchgate.net/publication/403250288)** |
-**[Paper 4 — L3 (v0.4.0): Deterministic Semantic Topologies](https://www.researchgate.net/publication/403251653)**
+[![CI](https://github.com/fabriziosalmi/aimp/actions/workflows/ci.yml/badge.svg)](https://github.com/fabriziosalmi/aimp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-2021_edition-orange.svg)](https://www.rust-lang.org/)
+[![ResearchGate](https://img.shields.io/badge/ResearchGate-Profile-00CCBB.svg?logo=researchgate)](https://www.researchgate.net/profile/Fabrizio-Salmi/publications)
+[![ResearchHub](https://img.shields.io/badge/ResearchHub-Profile-5C6BC0.svg)](https://www.researchhub.com/author/8588952?tab=publications)
 
-**AIMP** is an experimental, serverless networking protocol designed for resilient state synchronization between autonomous agents in fragmented, low-bandwidth networks.
+An experimental, serverless networking protocol for resilient state synchronization between autonomous agents in fragmented, low-bandwidth networks. Built on **Merkle-CRDTs** and **cryptographic identity** — no central authority, no global DNS, always writeable.
 
-Unlike traditional cloud-based protocols, AIMP operates on a **Local-First** principle, utilizing Merkle-CRDTs and cryptographic identity to ensure eventual consistency without a central authority or global DNS.
+---
+
+## Papers
+
+| # | Version | Title | Link |
+|---|---------|-------|------|
+| 1 | v0.1.0 | Merkle-CRDT Protocol (L1/L2) | [ResearchGate](https://www.researchgate.net/publication/403127328_AIMP_AI_Mesh_Protocol_Design_and_Evaluation_of_a_Serverless_Merkle-CRDT_Protocol_for_Edge_Agent_Synchronization) |
+| 2 | v0.2.0 | Epistemic Layer (L3) | [ResearchGate](https://www.researchgate.net/publication/403247988) |
+| 3 | v0.3.0 | Correlation-Aware Aggregation (L3) | [ResearchGate](https://www.researchgate.net/publication/403250288) |
+| 4 | v0.4.0 | Deterministic Semantic Topologies (L3) | [ResearchGate](https://www.researchgate.net/publication/403251653) |
+
+> **Author profiles:** [ResearchGate](https://www.researchgate.net/profile/Fabrizio-Salmi/publications) · [ResearchHub](https://www.researchhub.com/author/8588952?tab=publications)
 
 ---
 
@@ -19,6 +31,10 @@ Unlike traditional cloud-based protocols, AIMP operates on a **Local-First** pri
 | **L3** | v0.2.0 | Epistemic Layer: integer log-odds, two-pass trust propagation, Sybil-resistant reputation |
 | **L3** | v0.3.0 | Correlation-Aware Aggregation: geometric discounting for correlated sensors/LLMs |
 | **L3** | v0.4.0 | Deterministic Semantic Topologies: autonomous edge generation via 256-bit SimHash |
+
+---
+
+## What's New
 
 ### v0.4.0 — Deterministic Semantic Topologies
 
@@ -57,6 +73,8 @@ v0.3.0 introduces **Grid-Cell Correlation Discounting**:
 // v0.3.0 (30%):    847 × Σ(0.3^i) ≈ 1,207 milli-log-odds → ~77% (realistic)
 ```
 
+---
+
 ## Architecture
 
 ```
@@ -67,12 +85,13 @@ aimp_node/          Rust reference implementation (Cargo workspace member)
     network/        UDP gossip, Noise Protocol XX sessions, per-peer rate limiting
     protocol/       Wire format (MessagePack), typed payload enum
     epistemic.rs    L3 Epistemic Layer (v0.3.0): log-odds, trust propagation, correlation discounting
+    semantic_topology.rs  L3 Semantic Topology (v0.4.0): SimHash embeddings, auto-edge generation
     decision_engine.rs  Pluggable deterministic decision engine (trait + rule engine + hot-reload)
     error.rs        Unified AimpError type hierarchy
     dashboard/      Ratatui TUI
     config.rs       Dynamic configuration with validation
     event/          Structured logging + Prometheus metrics (counters + histograms)
-  tests/            Integration tests (64 passing)
+  tests/            Integration tests
   benches/          Criterion benchmarks
 aimp_testbed/       Python SDK (aimp-client) + CLI tool + chaos testing
 deploy/             Systemd service, Firecracker microVM, install script
@@ -81,6 +100,8 @@ docs/               Paper 1 (Typst source + PDF)
 v0.2.0/             Paper 2: Epistemic Layer (Typst source + PDF)
 v0.3.0/             Paper 3: Correlation-Aware Aggregation (Typst source + PDF)
 ```
+
+---
 
 ## Strategic Advantages
 
@@ -92,9 +113,11 @@ v0.3.0/             Paper 3: Correlation-Aware Aggregation (Typst source + PDF)
 | **Integrity**    | Cryptographic (Merkle-DAG) | Log-based                |
 | **Hardware**     | Edge/IoT Optimized         | Data Center Grade        |
 
+---
+
 ## Key Features
 
-**Core Engine (v0.1.0)**
+### Core Engine (v0.1.0)
 - Actor Model with zero-shared-state CRDT via `tokio::mpsc`
 - Slab/Arena allocation with O(1) insertion and SoA layout
 - Durable persistence via redb with ChaCha20Poly1305 encryption at rest
@@ -103,7 +126,7 @@ v0.3.0/             Paper 3: Correlation-Aware Aggregation (Typst source + PDF)
 - Real mark-and-sweep GC with slab memory reclamation
 - Epoch-based GC tracking integrated into the CRDT actor
 
-**Epistemic Layer (v0.2.0 + v0.3.0)**
+### Epistemic Layer (v0.2.0 — v0.4.0)
 - Integer log-odds arithmetic (i32, milli-log-odds) — no floats, 100% deterministic
 - Two-pass Markovian trust propagation (Supports → Contradictions, no oscillation)
 - Sybil-resistant reputation: new nodes start at 0, delegation required, reputation spending
@@ -111,9 +134,10 @@ v0.3.0/             Paper 3: Correlation-Aware Aggregation (Typst source + PDF)
 - Cycle detection (sorted DFS) prevents confidence inflation loops
 - **v0.3.0**: Correlation-aware aggregation — geometric discounting for co-located sensors / LLMs
 - **v0.3.0**: Atomic cell reduction — bucketing by (epoch, fingerprint, cell) for CRDT safety
+- **v0.4.0**: Deterministic semantic topologies — SimHash embeddings, autonomous edge generation
 - 98-142x faster than Subjective Logic / Dempster-Shafer (bit-identical across architectures)
 
-**Networking & Security**
+### Networking & Security
 - Noise Protocol XX encrypted sessions (default on)
 - Per-peer token bucket rate limiting (integer arithmetic)
 - O(1) gossip deduplication via HashSet + VecDeque
@@ -121,23 +145,25 @@ v0.3.0/             Paper 3: Correlation-Aware Aggregation (Typst source + PDF)
 - Session LRU eviction (TTL + max count)
 - Protocol version range negotiation for rolling upgrades
 
-**Decision Engine & Consensus**
+### Decision Engine & Consensus
 - Pluggable `DecisionEngine` trait with `RuleEngine` implementation
 - Hot-reload rules from `aimp_rules.json` (no restart needed)
 - BFT quorum voting with persistent verified decisions
 - Typed `Payload` enum per opcode (compile-time safety)
 
-**Observability**
+### Observability
 - Prometheus counters, gauges, and latency histograms
 - Composite `/health` endpoint with sub-checks and HTTP status codes
 - Structured `SystemEvent` logging with TUI dashboard
 
-**Operations**
+### Operations
 - Unified `AimpError` type hierarchy (no more `Box<dyn Error>`)
 - Config validation (rejects invalid parameter combinations)
 - Graceful shutdown with 5-second timeout
 - Systemd hardened service file
 - CI/CD: lint, test, security audit, docs, cross-compiled releases
+
+---
 
 ## Benchmarks
 
@@ -152,7 +178,7 @@ Measured with Criterion on Apple Silicon (M-series), single-threaded, `fast-cryp
 | Ed25519 sign (ring) | 9.3 µs | ~108K ops/sec |
 | Ed25519 verify | 25.0 µs | ~40K ops/sec |
 
-### System-Level Benchmarks
+### System-Level
 
 Simulated 5-node cluster with anti-entropy sync (in-process, Apple Silicon):
 
@@ -223,9 +249,11 @@ docker build -f Dockerfile.bench -t aimp-bench . && \
   docker run --rm --memory=1g --cpus=1 aimp-bench             # ARM64 constrained
 ```
 
+---
+
 ## Formal Verification (TLA+)
 
-### L2 — CRDT Convergence (`formal/AimpCrdtConvergence.tla`)
+### L2 — CRDT Convergence
 
 | Property | Description | Status |
 |----------|-------------|--------|
@@ -235,7 +263,7 @@ docker build -f Dockerfile.bench -t aimp-bench . && \
 
 TLC explored **46,063 states** (9,558 distinct) to depth 16 in <1 second with 10 parallel workers and zero violations. **Bugs found:** 2 correctness bugs (out-of-order heads, quorum double-voting). Both fixed.
 
-### L3 — Belief Convergence (`formal/AimpBeliefConvergence.tla`)
+### L3 — Belief Convergence
 
 | Property | Description | Status |
 |----------|-------------|--------|
@@ -244,6 +272,33 @@ TLC explored **46,063 states** (9,558 distinct) to depth 16 in <1 second with 10
 | **ContradictionSafety** | Single contradiction cannot flip Accepted → Rejected in one step | Verified |
 
 Exhaustive bounded verification: **199,902 configurations** (5 properties, up to N=6 nodes). **Bugs found:** 1 trust propagation formula bug (t_{k+1} = t_k + At_k vs correct t_{k+1} = t_0 + At_k). Fixed.
+
+---
+
+## Quick Start
+
+### 1. Run the Node
+```bash
+cargo run -- --port 1337 --name node1
+```
+
+### 2. Python CLI
+```bash
+cd aimp_testbed
+pip install -e .
+aimp-cli health --target 127.0.0.1 --metrics-port 9090
+aimp-cli infer "Check valve pressure in sector north"
+```
+
+### 3. Run Tests & Benchmarks
+```bash
+make test                     # Property-based + integration tests
+make bench                    # Criterion benchmarks
+make lint                     # Format + clippy
+make docs                     # Generate rustdoc
+```
+
+---
 
 ## Edge Deployment
 
@@ -299,47 +354,7 @@ The included service file (`deploy/systemd/aimp-node.service`) provides:
 | Restart | On failure with exponential backoff |
 | Shutdown | SIGTERM → 10s grace → SIGKILL |
 
-## Data Flow
-
-```mermaid
-graph TD
-    UDP[UDP Socket] -->|Envelope| RL[Rate Limiter]
-    RL -->|Allowed| NP[Noise Protocol]
-    NP -->|Decrypt| FW[Security Firewall]
-    FW -->|Valid| BP[Backpressure Semaphore]
-    BP -->|Permit| Parser[Protocol Parser]
-    Parser -->|AimpData| CRDT[CRDT Actor]
-    CRDT -->|Mutation| DAG[Merkle-DAG + redb]
-    DAG -->|Prune| GC[Epoch GC]
-    CRDT -->|Evaluation Req| DE[Decision Engine]
-    DE -->|Decision + Evidence| CRDT
-    CRDT -->|Quorum Vote| QM[QuorumManager]
-```
-
 ---
-
-## Quick Start
-
-### 1. Run the Node
-```bash
-cargo run -- --port 1337 --name node1
-```
-
-### 2. Python CLI
-```bash
-cd aimp_testbed
-pip install -e .
-aimp-cli health --target 127.0.0.1 --metrics-port 9090
-aimp-cli infer "Check valve pressure in sector north"
-```
-
-### 3. Run Tests & Benchmarks
-```bash
-make test                     # Property-based + integration tests
-make bench                    # Criterion benchmarks
-make lint                     # Format + clippy
-make docs                     # Generate rustdoc
-```
 
 ## Configuration
 
@@ -361,6 +376,27 @@ Configuration is loaded from (highest priority first):
 | `quorum_threshold` | 2 | Nodes required for BFT consensus |
 | `dag_history_depth` | 100 | Max DAG depth retained after GC |
 
+---
+
+## Data Flow
+
+```mermaid
+graph TD
+    UDP[UDP Socket] -->|Envelope| RL[Rate Limiter]
+    RL -->|Allowed| NP[Noise Protocol]
+    NP -->|Decrypt| FW[Security Firewall]
+    FW -->|Valid| BP[Backpressure Semaphore]
+    BP -->|Permit| Parser[Protocol Parser]
+    Parser -->|AimpData| CRDT[CRDT Actor]
+    CRDT -->|Mutation| DAG[Merkle-DAG + redb]
+    DAG -->|Prune| GC[Epoch GC]
+    CRDT -->|Evaluation Req| DE[Decision Engine]
+    DE -->|Decision + Evidence| CRDT
+    CRDT -->|Quorum Vote| QM[QuorumManager]
+```
+
+---
+
 ## Related Work
 
 AIMP builds on concepts from the following areas of distributed systems research:
@@ -377,6 +413,8 @@ AIMP builds on concepts from the following areas of distributed systems research
 - **Merkle Trees** — Merkle, "A Digital Signature Based on a Conventional Encryption Function" (CRYPTO, 1987)
 - **Vector Clocks** — Mattern, "Virtual Time and Global States of Distributed Systems" (1988)
 
+---
+
 ## License
 
-MIT License.
+[MIT](LICENSE) — Fabrizio Salmi, 2026.
