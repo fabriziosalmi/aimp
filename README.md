@@ -2,7 +2,8 @@
 
 **[Paper 1 — L1/L2 (v0.1.0): Merkle-CRDT Protocol](https://www.researchgate.net/publication/403127328_AIMP_AI_Mesh_Protocol_Design_and_Evaluation_of_a_Serverless_Merkle-CRDT_Protocol_for_Edge_Agent_Synchronization)** |
 **[Paper 2 — L3 (v0.2.0): Epistemic Layer](v0.2.0/AIMP-l3-epistemic-layer.pdf)** |
-**[Paper 3 — L3 (v0.3.0): Correlation-Aware Aggregation](v0.3.0/AIMP-v030-correlation-aware.pdf)**
+**[Paper 3 — L3 (v0.3.0): Correlation-Aware Aggregation](https://www.researchgate.net/publication/403250288)** |
+**[Paper 4 — L3 (v0.4.0): Deterministic Semantic Topologies](https://www.researchgate.net/publication/403251653)**
 
 **AIMP** is an experimental, serverless networking protocol designed for resilient state synchronization between autonomous agents in fragmented, low-bandwidth networks.
 
@@ -17,6 +18,25 @@ Unlike traditional cloud-based protocols, AIMP operates on a **Local-First** pri
 | **L1/L2** | v0.1.0 | Merkle-DAG CRDT, Ed25519 signing, Noise Protocol transport, BFT quorum |
 | **L3** | v0.2.0 | Epistemic Layer: integer log-odds, two-pass trust propagation, Sybil-resistant reputation |
 | **L3** | v0.3.0 | Correlation-Aware Aggregation: geometric discounting for correlated sensors/LLMs |
+| **L3** | v0.4.0 | Deterministic Semantic Topologies: autonomous edge generation via 256-bit SimHash |
+
+### v0.4.0 — Deterministic Semantic Topologies
+
+L3 v0.3.0 required applications to manually construct the knowledge graph (Supports/Contradicts edges). v0.4.0 eliminates this bottleneck with autonomous edge generation:
+
+- Claims carry an optional `QuantizedEmbedding([u64; 4])` — a 256-bit SimHash computed application-side from a canonical embedding model.
+- At each epoch boundary, the protocol computes pairwise Hamming distances (XOR + popcount, ~1 ns per pair) and emits Supports edges for close pairs (d <= 30 bits) and Contradicts edges for distant pairs (d >= 200 bits).
+- Edge strength scales linearly with distance in basis points (d=0 → 10000 bps, d=30 → 1000 bps).
+- A `max_k_nearest` cap bounds edge density to O(N), preventing trust propagation explosion.
+- `embedding_version: u32` isolates disjoint latent spaces for protocol-level model upgrades.
+- Auto-edges are materialized via L2 gossip, surviving GC via Holographic Routing.
+- Dead zone (31-199 bits) orphans ambiguous claims — epistemologically correct isolation.
+
+```rust
+// Autonomous truth discovery: 10,000 claims → 50 ms scan, O(N) edges
+// No floats. No coordination. No central authority.
+let edges = auto_edge_generator.generate_edges(&epoch_claims);
+```
 
 ### v0.3.0 — Correlation-Aware Belief Aggregation
 
