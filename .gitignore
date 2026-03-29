@@ -2,7 +2,7 @@
 **/target/
 aimp_state/
 **/*.rs.bk
-Cargo.lock
+
 
 # Python
 __pycache__/
