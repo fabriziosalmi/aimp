@@ -1,7 +1,7 @@
 # AIMP (AI Mesh Protocol)
 
 **[Paper 1 — L1/L2 (v0.1.0): Merkle-CRDT Protocol](https://www.researchgate.net/publication/403127328_AIMP_AI_Mesh_Protocol_Design_and_Evaluation_of_a_Serverless_Merkle-CRDT_Protocol_for_Edge_Agent_Synchronization)** |
-**[Paper 2 — L3 (v0.2.0): Epistemic Layer](v0.2.0/AIMP-l3-epistemic-layer.pdf)** |
+**[Paper 2 — L3 (v0.2.0): Epistemic Layer](https://www.researchgate.net/publication/403247988)** |
 **[Paper 3 — L3 (v0.3.0): Correlation-Aware Aggregation](https://www.researchgate.net/publication/403250288)** |
 **[Paper 4 — L3 (v0.4.0): Deterministic Semantic Topologies](https://www.researchgate.net/publication/403251653)**
 
