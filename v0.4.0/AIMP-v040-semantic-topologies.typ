@@ -31,41 +31,28 @@
 #block(fill: luma(245), inset: 12pt, radius: 4pt)[
   *Abstract.* The AIMP Epistemic Layer (L3) provides BFT-deterministic
   belief aggregation over Merkle-DAGs, with correlation-aware sensor
-  fusion (v0.3.0) and two-pass Markovian trust propagation (v0.2.0).
-  However, the epistemic knowledge graph --- the Supports and Contradicts
-  edges that drive trust flow --- must be constructed manually by the
-  application. This paper eliminates that requirement.
+  fusion (v0.3.0) and Markovian trust propagation (v0.2.0). However,
+  the epistemic knowledge graph --- the Supports and Contradicts edges
+  driving trust flow --- must be constructed manually. We eliminate
+  this bottleneck with _Deterministic Semantic Topologies_.
 
-  We introduce _Deterministic Semantic Topologies_: a protocol extension
-  that automatically generates epistemic edges from 256-bit SimHash
-  embeddings using Hamming distance. Claims carry an optional quantized
-  embedding computed application-side from a protocol-mandated canonical
-  embedding model. At each epoch boundary, the protocol computes pairwise
-  Hamming distances in a deterministic batch (sorted by claim ID),
-  emitting Supports edges for close pairs ($d <= 30$ bits) and
-  Contradicts edges for distant pairs ($d >= 200$ bits). Edge strength
-  is a linear integer function of distance.
+  Claims now carry an optional 256-bit SimHash embedding computed
+  application-side from a canonical model. At each epoch boundary,
+  the protocol performs a deterministic pairwise scan using integer
+  Hamming distance, autonomously emitting Supports edges for close
+  pairs ($d <= 30$) and Contradicts edges for distant pairs
+  ($d >= 200$). Our contributions are: (1) a _dead-zone thresholding_
+  mechanism that orphans ambiguous claims, preventing illegitimate
+  consensus inflation; (2) a per-claim _max-$k$-nearest cap_ that
+  strictly bounds topological edge density to $O(N dot k)$; and
+  (3) _embedding versioning_ to isolate disjoint latent spaces.
 
-  The design introduces three mechanisms: (1) _embedding versioning_,
-  allowing protocol-level model upgrades without breaking existing claims;
-  (2) a _max-$k$-nearest cap_ that bounds topological edge density
-  to $O(N dot k)$, preventing $O(E)$ trust propagation from exploding
-  despite the $O(N^2)$ pairwise scan (rendered negligible by hardware
-  popcount); and (3) a _dead zone_ between thresholds that
-  prevents spurious edges from semantically ambiguous pairs.
-
-  Hamming distance on 256-bit vectors executes in $tilde 1$ ns via
-  hardware popcount. For 1,000 claims per epoch, the full batch
-  computation adds $< 0.5$ ms --- negligible compared to trust
-  propagation (59% of the v0.2.0 hot path at 140 µs). All arithmetic
-  is integer-only (XOR + popcount + basis-point scaling). No floats
-  in the protocol core. ZK-circuit-compatible.
-
-  The implementation adds a new `semantic_topology` module (200 lines)
-  and two fields to the Claim struct. All 64 existing tests pass
-  unchanged; 17 new tests cover Hamming correctness, edge generation
-  determinism, version isolation, $k$-cap enforcement, and strength
-  gradients. The implementation is open-source (Rust, MIT license).
+  Because Hamming distance executes in $tilde 1$ ns via hardware
+  popcount, the $O(N^2)$ pairwise scan adds less than 0.5 ms for
+  1,000 claims, preserving L3's ultra-low latency without
+  floating-point arithmetic. The implementation adds 200 lines of
+  Rust, passes 81 tests, and ensures zero regression for legacy
+  claims. Open-source (MIT license).
 ]
 
 = Introduction
