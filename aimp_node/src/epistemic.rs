@@ -1,4 +1,4 @@
-//! AIMP v0.3.0 — Epistemic Layer (L3: Meaning)
+//! AIMP v0.4.0 — Epistemic Layer (L3: Meaning)
 //!
 //! Cognitive middleware built ABOVE aimp-core. L3 never touches L2 internals.
 //!
@@ -19,6 +19,9 @@
 //! 14. **Correlation discounting** — correlated claims (same grid cell) get geometric decay (v0.3.0)
 //! 15. **Atomic cell reduction** — bucketing by (epoch, fingerprint, cell) ensures discount is always
 //!     computed on the full stabilized set, eliminating associativity requirement for geometric decay (v0.3.0)
+//! 16. **Quantized embeddings** — 256-bit SimHash for deterministic semantic distance (v0.4.0)
+//! 17. **Automatic edge generation** — epoch-batch Supports/Contradicts from Hamming distance (v0.4.0)
+//! 18. **Embedding versioning** — only same-version embeddings are compared (v0.4.0)
 
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -428,6 +431,15 @@ pub struct Claim {
     /// as correlated and receive geometric discounting during aggregation.
     /// None = uncorrelated (backward compatible with v0.2.0 behavior).
     pub correlation_cell: Option<CorrelationCell>,
+    /// Optional quantized embedding (v0.4.0). 256-bit SimHash of claim content
+    /// in a canonical latent space. Used by AutoEdgeGenerator to produce
+    /// Supports/Contradicts edges automatically via Hamming distance.
+    /// None = no embedding (manual edges only, backward compatible).
+    pub embedding: Option<crate::semantic_topology::QuantizedEmbedding>,
+    /// Embedding model version (v0.4.0). Only claims with the same version
+    /// are compared. Allows protocol-level model upgrades without breaking
+    /// existing claims. Default: 0 (unversioned / legacy).
+    pub embedding_version: u32,
 }
 
 /// The semantic type of a claim.
@@ -1331,6 +1343,8 @@ impl ExactMatchReducer {
             // All claims in this bucket share the same cell (guaranteed by
             // grid-aligned bucketing on (epoch, fingerprint, cell)).
             correlation_cell: summary_cell,
+            embedding: None,       // Summaries don't carry embeddings
+            embedding_version: 0,
         })
     }
 }
@@ -1546,6 +1560,8 @@ impl SemanticReducer for ExactMatchReducer {
             evidence_source: id, // Unique per Summary — prevents dedup collision
             tick: tick_end,
             correlation_cell: summary_cell,
+            embedding: None,
+            embedding_version: 0,
         })
     }
 
@@ -1855,6 +1871,8 @@ mod tests {
             evidence_source: source,
             tick,
             correlation_cell: cell,
+            embedding: None,
+            embedding_version: 0,
         }
     }
 
@@ -2878,6 +2896,8 @@ mod tests {
             evidence_source: summary_id,
             tick: 10,
             correlation_cell: None,
+            embedding: None,
+            embedding_version: 0,
         };
 
         // The original C1 hash (now GC'd — NOT in claims array)

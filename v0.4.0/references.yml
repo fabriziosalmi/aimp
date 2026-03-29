@@ -1,0 +1,102 @@
+salmi2026aimp:
+  type: article
+  title: "AIMP: AI Mesh Protocol\u2014Design and Evaluation of a Serverless Merkle-CRDT Protocol for Edge Agent Synchronization"
+  author:
+    - Salmi, Fabrizio
+  date: 2026
+  url: "https://www.researchgate.net/publication/403127328"
+
+salmi2026l3:
+  type: article
+  title: "Byzantine-Tolerant Belief Aggregation over Merkle-DAGs: A Deterministic Epistemic Layer for Decentralized AI"
+  author:
+    - Salmi, Fabrizio
+  date: 2026
+
+salmi2026corr:
+  type: article
+  title: "Correlation-Aware Belief Aggregation: Deterministic Spatial-Temporal Discounting for Byzantine-Tolerant Sensor Fusion over Merkle-DAGs"
+  author:
+    - Salmi, Fabrizio
+  date: 2026
+  url: "https://www.researchgate.net/publication/403250288"
+
+charikar2002:
+  type: article
+  title: "Similarity Estimation Techniques from Rounding Algorithms"
+  author:
+    - Charikar, Moses S.
+  date: 2002
+  parent:
+    type: proceedings
+    title: "Proceedings of the 34th Annual ACM Symposium on Theory of Computing (STOC)"
+
+indyk1998:
+  type: article
+  title: "Approximate Nearest Neighbors: Towards Removing the Curse of Dimensionality"
+  author:
+    - Indyk, Piotr
+    - Motwani, Rajeev
+  date: 1998
+  parent:
+    type: proceedings
+    title: "Proceedings of the 30th Annual ACM Symposium on Theory of Computing (STOC)"
+
+jaynes2003:
+  type: book
+  title: "Probability Theory: The Logic of Science"
+  author:
+    - Jaynes, Edwin T.
+  date: 2003
+  publisher: Cambridge University Press
+
+reimers2019:
+  type: article
+  title: "Sentence-BERT: Sentence Embeddings using Siamese BERT-Networks"
+  author:
+    - Reimers, Nils
+    - Gurevych, Iryna
+  date: 2019
+  parent:
+    type: proceedings
+    title: "Proceedings of EMNLP-IJCNLP"
+
+wang2022:
+  type: article
+  title: "Text Embeddings by Weakly-Supervised Contrastive Pre-training"
+  author:
+    - Wang, Liang
+    - Yang, Nan
+    - Huang, Xiaolong
+    - Jiao, Binxing
+    - Yang, Linjun
+    - Jiang, Daxin
+    - Majumder, Rangan
+    - Wei, Furu
+  date: 2022
+  url: "https://arxiv.org/abs/2212.03533"
+
+kamvar2003:
+  type: article
+  title: "The EigenTrust Algorithm for Reputation Management in P2P Networks"
+  author:
+    - Kamvar, Sepandar D.
+    - Schlosser, Mario T.
+    - Garcia-Molina, Hector
+  date: 2003
+  parent:
+    type: proceedings
+    title: "Proceedings of the 12th International Conference on World Wide Web (WWW)"
+
+shapiro2011:
+  type: article
+  title: "Conflict-Free Replicated Data Types"
+  author:
+    - Shapiro, Marc
+    - Preguica, Nuno
+    - Baquero, Carlos
+    - Zawirski, Marek
+  date: 2011
+  parent:
+    type: proceedings
+    title: "Proceedings of the 13th International Symposium on Stabilization, Safety, and Security of Distributed Systems (SSS)"

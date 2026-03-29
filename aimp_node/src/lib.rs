@@ -4,6 +4,7 @@ pub mod crypto;
 pub mod dashboard;
 pub mod decision_engine;
 pub mod epistemic;
+pub mod semantic_topology;
 pub mod error;
 pub mod event;
 pub mod network;
