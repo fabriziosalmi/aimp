@@ -44,7 +44,7 @@
   ($d >= 200$). Our contributions are: (1) a _dead-zone thresholding_
   mechanism that orphans ambiguous claims, preventing illegitimate
   consensus inflation; (2) a per-claim _max-$k$-nearest cap_ that
-  strictly bounds topological edge density to $O(N dot k)$; and
+  strictly bounds topological edge density to $O(N)$ (at most $k dot N$ edges); and
   (3) _embedding versioning_ to isolate disjoint latent spaces.
 
   Because Hamming distance executes in $tilde 1$ ns via hardware
@@ -315,7 +315,7 @@ claims require $tilde 50$ ms --- a one-time epoch-boundary cost.
 
 The critical bound is _topological_: without capping, $N$ claims
 produce up to $N(N-1)/2$ edges. With `max_k_nearest = 10`, the graph
-contains at most $O(N dot k)$ edges. The `AutoEdgeGenerator` enforces
+contains at most $k dot N$ edges --- linear in $N$. The `AutoEdgeGenerator` enforces
 this by tracking per-claim edge counts and skipping pairs where either
 claim has reached its cap. Since claims are sorted by ID before the
 scan, the cap truncates the _same_ edges on every node (BFT-safe).
@@ -559,8 +559,8 @@ protocol changes --- only `embedding_version` increments.
   (e.g., sensor readings with known noise profiles) may require
   different thresholds.
 
-+ *Transient $k$-cap violation under partition.* The $O(N dot k)$
-  edge density bound holds strictly for epoch-aligned batches
++ *Transient $k$-cap violation under partition.* The linear
+  edge density bound ($k dot N$) holds strictly for epoch-aligned batches
   evaluated on fully converged state. Under asynchronous network
   partitions, CRDT set-union of independently generated auto-edges
   may temporarily cause specific claims to exceed the $k$-cap (e.g.,
