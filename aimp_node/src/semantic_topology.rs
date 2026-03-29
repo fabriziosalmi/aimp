@@ -15,9 +15,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::epistemic::{
-    Claim, ClaimHash, RawEpistemicEdge, Relation, Reputation, SemanticFingerprint,
-};
+use crate::epistemic::{Claim, ClaimHash, RawEpistemicEdge, Relation, Reputation};
 
 // ─── Quantized Embedding (SimHash 256-bit) ──────────────────
 
@@ -135,8 +133,7 @@ impl AutoEdgeGenerator {
             let c1 = with_embedding[i];
             let e1 = c1.embedding.unwrap(); // safe: filtered above
 
-            for j in (i + 1)..with_embedding.len() {
-                let c2 = with_embedding[j];
+            for &c2 in with_embedding.iter().skip(i + 1) {
 
                 // v0.4.0: Only compare claims with the same embedding version.
                 // Different versions use different canonical models / hyperplanes
@@ -211,7 +208,7 @@ impl AutoEdgeGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::epistemic::{ClaimKind, CorrelationCell, LogOdds};
+    use crate::epistemic::{ClaimKind, CorrelationCell, LogOdds, SemanticFingerprint};
 
     fn make_embedding(seed: u64) -> QuantizedEmbedding {
         // Deterministic embedding from seed using BLAKE3
