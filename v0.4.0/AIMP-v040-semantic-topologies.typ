@@ -48,8 +48,10 @@
 
   The design introduces three mechanisms: (1) _embedding versioning_,
   allowing protocol-level model upgrades without breaking existing claims;
-  (2) a _max-$k$-nearest cap_ that bounds edge density at $O(N dot k)$
-  instead of $O(N^2)$; and (3) a _dead zone_ between thresholds that
+  (2) a _max-$k$-nearest cap_ that bounds topological edge density
+  to $O(N dot k)$, preventing $O(E)$ trust propagation from exploding
+  despite the $O(N^2)$ pairwise scan (rendered negligible by hardware
+  popcount); and (3) a _dead zone_ between thresholds that
   prevents spurious edges from semantically ambiguous pairs.
 
   Hamming distance on 256-bit vectors executes in $tilde 1$ ns via
@@ -113,9 +115,13 @@ deterministic, and executes in $tilde 1$ ns via hardware popcount.
   the protocol to upgrade its canonical embedding model without
   invalidating existing claims or breaking CRDT convergence.
 
-+ *Bounded Edge Density.* A per-claim `max_k_nearest` cap limits the
-  number of auto-generated edges, bounding the knowledge graph to
-  $O(N dot k)$ edges instead of $O(N^2)$.
++ *Bounded Edge Density.* A per-claim `max_k_nearest` cap strictly
+  bounds the resulting knowledge graph to $O(N dot k)$ edges. While
+  the pairwise Hamming scan remains $O(N^2)$ in time, hardware
+  popcount renders this cost negligible (50 ms for 10,000 claims).
+  The topological cap ensures that subsequent Markovian trust
+  propagation --- which is $O(E)$ per iteration --- remains strictly
+  bounded in time and memory.
 
 == Relationship to Prior Work
 
@@ -168,6 +174,17 @@ specifies:
 L3 never executes the embedding model. It receives pre-computed
 `[u64; 4]` values and compares them via Hamming distance. The float
 boundary is on the application side, outside the protocol core.
+
+Crucially, L3 does not require strict hardware determinism from the
+client-side embedding model. Floating-point variations across GPUs
+and CPUs (IEEE 754 rounding modes, FMA contraction) may cause the
+resulting 256-bit SimHash to differ by 1--2 bits for the exact same
+input string on different hardware. This is precisely why we use
+continuous Hamming distance thresholds ($d <= 30$) rather than strict
+equality ($d = 0$). The topological outcome --- the creation of a
+Supports edge --- remains identical and BFT-safe regardless of these
+micro-variations, fully isolating the deterministic L3 core from
+hardware-level float discrepancies.
 
 == Embedding Version Isolation
 
@@ -303,15 +320,23 @@ set is a pure function of $C$ and the protocol constants. #h(1em) $square$
 
 == Bounded Edge Density
 
-Without capping, $N$ claims produce up to $N(N-1)/2$ edges. With
-`max_k_nearest = 10`, each claim generates at most 10 edges, bounding
-the graph at $O(N dot k)$ edges. The `AutoEdgeGenerator` enforces this
-by tracking per-claim edge counts and skipping pairs where either
-claim has reached its cap.
+It is essential to distinguish _computational complexity_ from
+_topological complexity_. The pairwise Hamming scan is $O(N^2)$ in
+time: every pair is evaluated. However, Hamming distance on 256-bit
+vectors executes in $tilde 1$ ns (hardware popcount), so 10,000
+claims require $tilde 50$ ms --- a one-time epoch-boundary cost.
 
-For trust propagation (which is $O(E)$ per iteration), this bound
-is critical: 10,000 claims with $k = 10$ produce at most 100,000
-edges, compared to 50,000,000 without capping.
+The critical bound is _topological_: without capping, $N$ claims
+produce up to $N(N-1)/2$ edges. With `max_k_nearest = 10`, the graph
+contains at most $O(N dot k)$ edges. The `AutoEdgeGenerator` enforces
+this by tracking per-claim edge counts and skipping pairs where either
+claim has reached its cap. Since claims are sorted by ID before the
+scan, the cap truncates the _same_ edges on every node (BFT-safe).
+
+For trust propagation (which is $O(E)$ per iteration), this
+topological bound is the load-bearing invariant: 10,000 claims with
+$k = 10$ produce at most 100,000 edges, compared to 50,000,000
+without capping.
 
 = Integration with L3
 
@@ -347,6 +372,15 @@ different purposes:
 A claim can carry all three: a fingerprint for grouping, a cell for
 discounting, and an embedding for edge generation. They are independent
 axes of the epistemic pipeline.
+
+The interaction between layers is sequential, not conflicting: the
+`ExactMatchReducer` compacts claims with identical `SemanticFingerprint`
+_before_ edge generation occurs. Auto-edges are therefore generated
+exclusively between _distinct_ nodes in the DAG --- claims that share
+semantic proximity ($0 < d <= T_"support"$) but are not exact
+duplicates. This prevents the auto-edge generator from creating
+tautological edges between observations that should have been merged
+by the Reducer.
 
 == Backward Compatibility
 
@@ -501,10 +535,22 @@ auto-generated graph is sparse and meaningful.
   graph temporarily partitions. A bridge mechanism (cross-version
   similarity via content hash) is left for future work.
 
++ *Topologically orphaned claims.* Claims that fall entirely within
+  the dead zone ($30 < d < 200$) across every other claim in the epoch
+  generate zero auto-edges, becoming topologically isolated. This is
+  an epistemologically correct outcome: an observation that is neither
+  corroborated nor contradicted by the network remains in the
+  _uncertain_ belief state. Its classification relies entirely on
+  `base_trust` (the author's reputation-weighted confidence),
+  preventing unsupported claims from illegitimately inflating network
+  consensus. Manual edges can still be attached to orphaned claims by
+  application-level policies.
+
 + *LSH for large epochs.* For $N > 10000$ claims per epoch, the
-  $O(N^2)$ batch becomes expensive. LSH bucketing #cite(label("indyk1998"))
-  would reduce this to $O(N dot "bucket")$ at the cost of missing some
-  cross-bucket pairs.
+  $O(N^2)$ pairwise scan becomes expensive. LSH bucketing
+  #cite(label("indyk1998")) would reduce this to
+  $O(N dot "bucket"_"size")$ at the cost of missing some cross-bucket
+  pairs.
 
 = Conclusion
 
