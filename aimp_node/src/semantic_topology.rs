@@ -133,8 +133,7 @@ impl AutoEdgeGenerator {
             let c1 = with_embedding[i];
             let e1 = c1.embedding.unwrap(); // safe: filtered above
 
-            for c2 in with_embedding.iter().skip(i + 1) {
-                let c2 = *c2;
+            for &c2 in with_embedding.iter().skip(i + 1) {
 
                 // v0.4.0: Only compare claims with the same embedding version.
                 // Different versions use different canonical models / hyperplanes
@@ -209,7 +208,7 @@ impl AutoEdgeGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::epistemic::{ClaimKind, CorrelationCell, LogOdds};
+    use crate::epistemic::{ClaimKind, CorrelationCell, LogOdds, SemanticFingerprint};
 
     fn make_embedding(seed: u64) -> QuantizedEmbedding {
         // Deterministic embedding from seed using BLAKE3
