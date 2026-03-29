@@ -103,12 +103,12 @@ deterministic, and executes in $tilde 1$ ns via hardware popcount.
   invalidating existing claims or breaking CRDT convergence.
 
 + *Bounded Edge Density.* A per-claim `max_k_nearest` cap strictly
-  bounds the resulting knowledge graph to $O(N dot k)$ edges. While
-  the pairwise Hamming scan remains $O(N^2)$ in time, hardware
-  popcount renders this cost negligible (50 ms for 10,000 claims).
-  The topological cap ensures that subsequent Markovian trust
-  propagation --- which is $O(E)$ per iteration --- remains strictly
-  bounded in time and memory.
+  bounds the resulting knowledge graph to strictly linear $O(N)$ edge
+  density (max $k$ per claim). While the pairwise Hamming scan remains
+  $O(N^2)$ in time, hardware popcount renders this cost negligible
+  (50 ms for 10,000 claims). The topological cap ensures that
+  subsequent Markovian trust propagation --- which is $O(E)$ per
+  iteration --- remains strictly bounded in time and memory.
 
 == Relationship to Prior Work
 
