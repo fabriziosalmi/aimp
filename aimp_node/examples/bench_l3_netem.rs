@@ -180,6 +180,9 @@ fn make_l3_claim(i: u32, origin: [u8; 32], confidence: i32) -> Claim {
         confidence: LogOdds::new(confidence),
         evidence_source: src,
         tick: i as u64,
+        correlation_cell: None,
+        embedding: None,
+        embedding_version: 0,
     }
 }
 

@@ -284,6 +284,9 @@ fn main() {
                 confidence: LogOdds::new(2000),
                 evidence_source: src,
                 tick: i as u64,
+                correlation_cell: None,
+                embedding: None,
+                embedding_version: 0,
             }
         })
         .collect();

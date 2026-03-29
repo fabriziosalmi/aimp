@@ -190,10 +190,7 @@ impl LogOdds {
 
             // Sort by |logodds| descending, then by id for deterministic tiebreak
             group.sort_by(|(lo_a, id_a), (lo_b, id_b)| {
-                lo_b.0
-                    .abs()
-                    .cmp(&lo_a.0.abs())
-                    .then_with(|| id_a.cmp(id_b))
+                lo_b.0.abs().cmp(&lo_a.0.abs()).then_with(|| id_a.cmp(id_b))
             });
 
             for (rank, (lo, _)) in group.iter().enumerate() {
@@ -1248,11 +1245,7 @@ impl ExactMatchReducer {
                 unique_sources.push(c.evidence_source);
                 // CRITICAL: Weight by reputation. A 1-bps Sybil contributes
                 // almost nothing. A 10000-bps anchor contributes full weight.
-                evidence_tuples.push((
-                    rep.weight_evidence(c.confidence),
-                    c.correlation_cell,
-                    c.id,
-                ));
+                evidence_tuples.push((rep.weight_evidence(c.confidence), c.correlation_cell, c.id));
             }
         }
 
@@ -1343,7 +1336,7 @@ impl ExactMatchReducer {
             // All claims in this bucket share the same cell (guaranteed by
             // grid-aligned bucketing on (epoch, fingerprint, cell)).
             correlation_cell: summary_cell,
-            embedding: None,       // Summaries don't carry embeddings
+            embedding: None, // Summaries don't carry embeddings
             embedding_version: 0,
         })
     }
@@ -2672,14 +2665,14 @@ mod tests {
         tracker.set_reputation(&delegator, Reputation::from_bps(10000));
 
         // Delegator creates 5 nodes, each getting 2000 bps
-        let mut total_delegated = 0u16;
+        let mut _total_delegated = 0u16;
         for i in 0..5u8 {
             let node = [i + 10; 32];
             let before = tracker.reputation(&delegator).bps();
             tracker.delegate(&delegator, &node, Reputation::from_bps(2000));
             let after = tracker.reputation(&delegator).bps();
             let granted = tracker.reputation(&node).bps();
-            total_delegated += granted;
+            _total_delegated += granted;
 
             // Each delegation costs the delegator
             assert!(
@@ -3360,7 +3353,11 @@ mod tests {
         );
         // First claim gets full weight, rest geometrically discounted
         assert!(correlated.value() > 1000, "at least one full claim");
-        assert!(correlated.value() < 2000, "heavily discounted: {}", correlated.value());
+        assert!(
+            correlated.value() < 2000,
+            "heavily discounted: {}",
+            correlated.value()
+        );
     }
 
     #[test]
@@ -3405,7 +3402,13 @@ mod tests {
         ];
         let r_a = LogOdds::aggregate_correlated(&ev_a, 3000);
         let r_b = LogOdds::aggregate_correlated(&ev_b, 3000);
-        assert_eq!(r_a, r_b, "must be commutative: {} vs {}", r_a.value(), r_b.value());
+        assert_eq!(
+            r_a,
+            r_b,
+            "must be commutative: {} vs {}",
+            r_a.value(),
+            r_b.value()
+        );
     }
 
     #[test]
@@ -3428,16 +3431,41 @@ mod tests {
     #[test]
     fn test_epoch_aligned_splits_by_cell() {
         // v0.3.0: Two claims in same epoch but different cells → separate Summaries
-        let c1 = make_claim_with_cell(1, b"temp=20", 2000, 100, [10u8; 32], Some(CorrelationCell(1)));
-        let c2 = make_claim_with_cell(1, b"temp=20", 2000, 150, [11u8; 32], Some(CorrelationCell(2)));
+        let c1 = make_claim_with_cell(
+            1,
+            b"temp=20",
+            2000,
+            100,
+            [10u8; 32],
+            Some(CorrelationCell(1)),
+        );
+        let c2 = make_claim_with_cell(
+            1,
+            b"temp=20",
+            2000,
+            150,
+            [11u8; 32],
+            Some(CorrelationCell(2)),
+        );
         // Need a third claim to have ≥2 per bucket for reduction
-        let c3 = make_claim_with_cell(1, b"temp=20", 2000, 120, [12u8; 32], Some(CorrelationCell(1)));
+        let c3 = make_claim_with_cell(
+            1,
+            b"temp=20",
+            2000,
+            120,
+            [12u8; 32],
+            Some(CorrelationCell(1)),
+        );
 
         let reducer = ExactMatchReducer;
         let summaries = reducer.reduce_epoch_aligned(&[c1, c2, c3], 10000, None);
 
         // Cell 1 has 2 claims → 1 Summary. Cell 2 has 1 claim → no Summary.
-        assert_eq!(summaries.len(), 1, "only cell 1 has enough claims to reduce");
+        assert_eq!(
+            summaries.len(),
+            1,
+            "only cell 1 has enough claims to reduce"
+        );
         assert_eq!(
             summaries[0].correlation_cell,
             Some(CorrelationCell(1)),
@@ -3453,14 +3481,24 @@ mod tests {
             let mut src = [0u8; 32];
             src[0] = i;
             claims.push(make_claim_with_cell(
-                1, b"temp=20", 2000, 100 + i as u64, src, Some(CorrelationCell(1)),
+                1,
+                b"temp=20",
+                2000,
+                100 + i as u64,
+                src,
+                Some(CorrelationCell(1)),
             ));
         }
         for i in 0..3u8 {
             let mut src = [0u8; 32];
             src[0] = 10 + i;
             claims.push(make_claim_with_cell(
-                1, b"temp=20", 2000, 100 + i as u64, src, Some(CorrelationCell(2)),
+                1,
+                b"temp=20",
+                2000,
+                100 + i as u64,
+                src,
+                Some(CorrelationCell(2)),
             ));
         }
 
@@ -3477,23 +3515,29 @@ mod tests {
     fn test_reduce_with_reputation_applies_discount() {
         // 3 claims in same cell with reputation → discounting applied
         let mut tracker = InMemoryReputationTracker::new();
-        let origins: Vec<[u8; 32]> = (0..3u8).map(|i| {
-            let mut o = [0u8; 32];
-            o[0] = i;
-            o
-        }).collect();
+        let origins: Vec<[u8; 32]> = (0..3u8)
+            .map(|i| {
+                let mut o = [0u8; 32];
+                o[0] = i;
+                o
+            })
+            .collect();
         for o in &origins {
             tracker.scores.insert(*o, Reputation::FULL);
         }
 
         let cell = Some(CorrelationCell(42));
-        let claims: Vec<_> = origins.iter().enumerate().map(|(i, o)| {
-            let mut src = [0u8; 32];
-            src[0] = i as u8 + 50;
-            let mut c = make_claim_with_cell(1, b"temp=20", 2000, 100, src, cell);
-            c.origin = *o;
-            c
-        }).collect();
+        let claims: Vec<_> = origins
+            .iter()
+            .enumerate()
+            .map(|(i, o)| {
+                let mut src = [0u8; 32];
+                src[0] = i as u8 + 50;
+                let mut c = make_claim_with_cell(1, b"temp=20", 2000, 100, src, cell);
+                c.origin = *o;
+                c
+            })
+            .collect();
 
         let reducer = ExactMatchReducer;
         let summary = reducer.reduce_with_reputation(&claims, &tracker).unwrap();
@@ -3516,22 +3560,28 @@ mod tests {
     fn test_none_cell_backward_compat() {
         // Claims with no cell should produce identical results to v0.2.0
         let mut tracker = InMemoryReputationTracker::new();
-        let origins: Vec<[u8; 32]> = (0..3u8).map(|i| {
-            let mut o = [0u8; 32];
-            o[0] = i;
-            o
-        }).collect();
+        let origins: Vec<[u8; 32]> = (0..3u8)
+            .map(|i| {
+                let mut o = [0u8; 32];
+                o[0] = i;
+                o
+            })
+            .collect();
         for o in &origins {
             tracker.scores.insert(*o, Reputation::FULL);
         }
 
-        let claims: Vec<_> = origins.iter().enumerate().map(|(i, o)| {
-            let mut src = [0u8; 32];
-            src[0] = i as u8 + 50;
-            let mut c = make_claim(1, b"temp=20", 2000, 100, src);
-            c.origin = *o;
-            c
-        }).collect();
+        let claims: Vec<_> = origins
+            .iter()
+            .enumerate()
+            .map(|(i, o)| {
+                let mut src = [0u8; 32];
+                src[0] = i as u8 + 50;
+                let mut c = make_claim(1, b"temp=20", 2000, 100, src);
+                c.origin = *o;
+                c
+            })
+            .collect();
 
         let reducer = ExactMatchReducer;
         let summary = reducer.reduce_with_reputation(&claims, &tracker).unwrap();
@@ -3549,7 +3599,11 @@ mod tests {
         // Strong discount (≤50%): reaches ~0 well before MAX_DISCOUNT_DEPTH
         for bps in [1000u16, 3000, 5000] {
             let f = discount_factor(MAX_DISCOUNT_DEPTH, bps);
-            assert_eq!(f, 0, "discount_bps={} at max depth should be 0, got {}", bps, f);
+            assert_eq!(
+                f, 0,
+                "discount_bps={} at max depth should be 0, got {}",
+                bps, f
+            );
         }
         // Weak discount (70%): 0.7^30 ≈ 0.002 → still small
         assert!(discount_factor(MAX_DISCOUNT_DEPTH, 7000) < 100);

@@ -15,10 +15,9 @@
 ///! - Automerge does NOT include cryptographic signatures (no Ed25519)
 ///!   so the comparison includes AIMP's crypto overhead vs Automerge without it
 ///! - All measurements single-threaded on the same hardware
-
 use automerge::transaction::Transactable;
 use ring::signature::KeyPair;
-use yrs::{ReadTxn, Text, Transact, updates::decoder::Decode, updates::encoder::Encode};
+use yrs::{updates::decoder::Decode, updates::encoder::Encode, ReadTxn, Text, Transact};
 
 use aimp_node::crdt::merkle_dag::{DagNode, MerkleCrdtEngine};
 use aimp_node::crypto::{Identity, SecurityFirewall};
@@ -134,7 +133,12 @@ fn main() {
         for i in 0..num_mutations {
             let data = format!("mutation-{}", i);
             aimp_create_mutation_fast(
-                &mut engine, &identity, data.as_bytes(), "n0", i + 1, &mut sign_buf,
+                &mut engine,
+                &identity,
+                data.as_bytes(),
+                "n0",
+                i + 1,
+                &mut sign_buf,
             );
         }
         let elapsed = start.elapsed();
@@ -259,11 +263,15 @@ fn main() {
 
         for i in 0..merge_mutations {
             let key = format!("a-key-{}", i);
-            doc_a.put(automerge::ROOT, &key, format!("a-val-{}", i)).unwrap();
+            doc_a
+                .put(automerge::ROOT, &key, format!("a-val-{}", i))
+                .unwrap();
         }
         for i in 0..merge_mutations {
             let key = format!("b-key-{}", i);
-            doc_b.put(automerge::ROOT, &key, format!("b-val-{}", i)).unwrap();
+            doc_b
+                .put(automerge::ROOT, &key, format!("b-val-{}", i))
+                .unwrap();
         }
 
         let start = Instant::now();
@@ -271,12 +279,8 @@ fn main() {
         let changes_a = doc_a.save_incremental();
         let changes_b = doc_b.save_incremental();
 
-        doc_b
-            .load_incremental(&changes_a)
-            .unwrap();
-        doc_a
-            .load_incremental(&changes_b)
-            .unwrap();
+        doc_b.load_incremental(&changes_a).unwrap();
+        doc_a.load_incremental(&changes_b).unwrap();
 
         let elapsed = start.elapsed();
 
@@ -350,7 +354,13 @@ fn main() {
         for (i, engine) in engines.iter_mut().enumerate() {
             for tick in 0..ops_per_replica {
                 let data = format!("n{}-op{}", i, tick);
-                aimp_create_mutation(engine, &identities[i], data.as_bytes(), &format!("n{i}"), tick + 1);
+                aimp_create_mutation(
+                    engine,
+                    &identities[i],
+                    data.as_bytes(),
+                    &format!("n{i}"),
+                    tick + 1,
+                );
             }
         }
 
@@ -358,7 +368,9 @@ fn main() {
         // Full mesh sync
         for i in 0..n_replicas {
             for j in 0..n_replicas {
-                if i == j { continue; }
+                if i == j {
+                    continue;
+                }
                 let src_nodes: Vec<([u8; 32], DagNode)> = engines[i]
                     .arena
                     .get_all_iter()
@@ -392,7 +404,8 @@ fn main() {
         for (i, doc) in docs.iter_mut().enumerate() {
             for tick in 0..ops_per_replica {
                 let key = format!("n{}-k{}", i, tick);
-                doc.put(automerge::ROOT, &key, format!("n{}-v{}", i, tick)).unwrap();
+                doc.put(automerge::ROOT, &key, format!("n{}-v{}", i, tick))
+                    .unwrap();
             }
         }
 
@@ -403,7 +416,9 @@ fn main() {
         // Apply all changes to all docs
         for i in 0..n_replicas {
             for j in 0..n_replicas {
-                if i == j { continue; }
+                if i == j {
+                    continue;
+                }
                 docs[j].load_incremental(&changes[i]).unwrap();
             }
         }
@@ -432,7 +447,11 @@ fn main() {
         }
         // Approximate size: each DagNode has parents (32*N), signature (64), data_hash (32), vclock
         let approx_bytes = engine.arena.len() * (32 + 64 + 32 + 50); // rough estimate
-        println!("  AIMP:      ~{} bytes ({} nodes, estimated)", approx_bytes, engine.arena.len());
+        println!(
+            "  AIMP:      ~{} bytes ({} nodes, estimated)",
+            approx_bytes,
+            engine.arena.len()
+        );
     }
 
     // Automerge
@@ -484,8 +503,7 @@ fn main() {
     {
         let rng = ring::rand::SystemRandom::new();
         let pkcs8 = ring::signature::Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
-        let key_pair =
-            ring::signature::Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
+        let key_pair = ring::signature::Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
 
         let start = Instant::now();
         for _ in 0..iterations {
@@ -506,8 +524,7 @@ fn main() {
         let mut engine = MerkleCrdtEngine::default();
         let rng = ring::rand::SystemRandom::new();
         let pkcs8 = ring::signature::Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
-        let ring_key =
-            ring::signature::Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
+        let ring_key = ring::signature::Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
 
         let mut sign_buf = Vec::with_capacity(256);
 

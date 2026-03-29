@@ -74,6 +74,9 @@ impl MeshSimulator {
             confidence: LogOdds::VERY_HIGH, // High confidence grant
             evidence_source: id,
             tick: self.claims.len() as u64,
+            correlation_cell: None,
+            embedding: None,
+            embedding_version: 0,
         };
 
         // Replicate to all nodes (simulates L2 gossip)
@@ -121,6 +124,9 @@ impl MeshSimulator {
             confidence: LogOdds::VERY_HIGH,
             evidence_source: id,
             tick: self.claims.len() as u64,
+            correlation_cell: None,
+            embedding: None,
+            embedding_version: 0,
         };
 
         let revoke_idx = self.claims.len();

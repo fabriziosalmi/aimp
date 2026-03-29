@@ -42,6 +42,9 @@ fn arb_claim() -> impl Strategy<Value = Claim> {
                 confidence: LogOdds::new(lo),
                 evidence_source: source,
                 tick,
+                correlation_cell: None,
+                embedding: None,
+                embedding_version: 0,
             }
         })
 }
@@ -68,6 +71,9 @@ fn arb_same_fingerprint_claims(n: usize) -> impl Strategy<Value = Vec<Claim>> {
                     confidence: LogOdds::new(lo),
                     evidence_source: source,
                     tick,
+                    correlation_cell: None,
+                    embedding: None,
+                    embedding_version: 0,
                 }
             }),
             2..=n,
@@ -214,6 +220,9 @@ proptest! {
                 confidence: LogOdds::new(2000),
                 evidence_source: src,
                 tick: i as u64,
+                correlation_cell: None,
+                embedding: None,
+                embedding_version: 0,
             });
             tracker.delegate(&anchor, &origin, Reputation::from_bps(5000));
             if i > 0 {
@@ -284,6 +293,9 @@ proptest! {
                 confidence: LogOdds::new(if i % 3 == 0 { 5000 } else if i % 3 == 1 { -5000 } else { 500 }),
                 evidence_source: src,
                 tick: i as u64,
+                correlation_cell: None,
+                embedding: None,
+                embedding_version: 0,
             });
             tracker.delegate(&anchor, &origin, Reputation::from_bps(5000));
             if i > 0 {

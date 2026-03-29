@@ -16,7 +16,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::epistemic::{
-    ClaimHash, Claim, RawEpistemicEdge, Relation, Reputation, SemanticFingerprint,
+    Claim, ClaimHash, RawEpistemicEdge, Relation, Reputation, SemanticFingerprint,
 };
 
 // ─── Quantized Embedding (SimHash 256-bit) ──────────────────
@@ -118,10 +118,8 @@ impl AutoEdgeGenerator {
     /// Returns edges in deterministic order (by from_hash, then to_hash).
     pub fn generate_edges(&self, claims: &[Claim]) -> Vec<RawEpistemicEdge> {
         // Collect claims with embeddings, sorted by ID for determinism
-        let mut with_embedding: Vec<&Claim> = claims
-            .iter()
-            .filter(|c| c.embedding.is_some())
-            .collect();
+        let mut with_embedding: Vec<&Claim> =
+            claims.iter().filter(|c| c.embedding.is_some()).collect();
         with_embedding.sort_by_key(|c| c.id);
 
         if with_embedding.len() < 2 {
@@ -152,9 +150,7 @@ impl AutoEdgeGenerator {
                 // Check if both claims have hit their edge cap
                 let count1 = edge_counts.get(&c1.id).copied().unwrap_or(0);
                 let count2 = edge_counts.get(&c2.id).copied().unwrap_or(0);
-                if count1 >= self.config.max_k_nearest
-                    || count2 >= self.config.max_k_nearest
-                {
+                if count1 >= self.config.max_k_nearest || count2 >= self.config.max_k_nearest {
                     continue;
                 }
 
@@ -180,8 +176,11 @@ impl AutoEdgeGenerator {
                         }
                         Relation::Contradicts => {
                             // distance=256 → 10000, distance=threshold → 1000
-                            let range = 256u32.saturating_sub(self.config.contradict_threshold_bits).max(1);
-                            let above = distance.saturating_sub(self.config.contradict_threshold_bits);
+                            let range = 256u32
+                                .saturating_sub(self.config.contradict_threshold_bits)
+                                .max(1);
+                            let above =
+                                distance.saturating_sub(self.config.contradict_threshold_bits);
                             let raw = 1000 + above * 9000 / range;
                             raw.clamp(1000, 10000) as u16
                         }
@@ -253,17 +252,11 @@ mod tests {
         primary.copy_from_slice(&hash.as_bytes()[..16]);
         SemanticFingerprint {
             primary,
-            secondary: u64::from_le_bytes(
-                hash.as_bytes()[16..24].try_into().unwrap(),
-            ),
+            secondary: u64::from_le_bytes(hash.as_bytes()[16..24].try_into().unwrap()),
         }
     }
 
-    fn make_test_claim(
-        data: &[u8],
-        tick: u64,
-        embedding: Option<QuantizedEmbedding>,
-    ) -> Claim {
+    fn make_test_claim(data: &[u8], tick: u64, embedding: Option<QuantizedEmbedding>) -> Claim {
         let fp = make_fingerprint(data);
         let mut source = [0u8; 32];
         source[..data.len().min(32)].copy_from_slice(&data[..data.len().min(32)]);
@@ -338,7 +331,11 @@ mod tests {
         let a = make_embedding(1);
         let b = make_embedding(2);
         let d = a.hamming_distance(&b);
-        assert!(d > 80 && d < 180, "random embeddings should be ~128 apart, got {}", d);
+        assert!(
+            d > 80 && d < 180,
+            "random embeddings should be ~128 apart, got {}",
+            d
+        );
     }
 
     // ── Auto edge generation tests ──
@@ -356,7 +353,10 @@ mod tests {
 
         assert_eq!(edges.len(), 1);
         assert_eq!(edges[0].relation, Relation::Supports);
-        assert!(edges[0].strength.bps() > 5000, "close distance should produce high strength");
+        assert!(
+            edges[0].strength.bps() > 5000,
+            "close distance should produce high strength"
+        );
     }
 
     #[test]
@@ -417,7 +417,10 @@ mod tests {
         let gen = AutoEdgeGenerator::new(AutoEdgeConfig::default());
         let edges = gen.generate_edges(&[c1, c2]);
 
-        assert!(edges.is_empty(), "claim without embedding should be skipped");
+        assert!(
+            edges.is_empty(),
+            "claim without embedding should be skipped"
+        );
     }
 
     #[test]
@@ -508,7 +511,10 @@ mod tests {
         let gen = AutoEdgeGenerator::new(AutoEdgeConfig::default());
         let edges = gen.generate_edges(&[c1, c2]);
 
-        assert!(edges.is_empty(), "different embedding versions must not produce edges");
+        assert!(
+            edges.is_empty(),
+            "different embedding versions must not produce edges"
+        );
     }
 
     #[test]
@@ -525,6 +531,10 @@ mod tests {
         let gen = AutoEdgeGenerator::new(AutoEdgeConfig::default());
         let edges = gen.generate_edges(&[c1, c2]);
 
-        assert_eq!(edges.len(), 1, "same version + close distance → Supports edge");
+        assert_eq!(
+            edges.len(),
+            1,
+            "same version + close distance → Supports edge"
+        );
     }
 }

@@ -53,6 +53,9 @@ fn make_claim_with_origin(i: u32, logodds: i32) -> Claim {
         confidence: LogOdds::new(logodds),
         evidence_source: src,
         tick: i as u64,
+        correlation_cell: None,
+        embedding: None,
+        embedding_version: 0,
     }
 }
 
