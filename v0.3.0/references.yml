@@ -1,0 +1,136 @@
+shapiro2011:
+  type: article
+  title: "Conflict-Free Replicated Data Types"
+  author:
+    - Shapiro, Marc
+    - Preguica, Nuno
+    - Baquero, Carlos
+    - Zawirski, Marek
+  date: 2011
+  parent:
+    type: proceedings
+    title: "Proceedings of the 13th International Symposium on Stabilization, Safety, and Security of Distributed Systems (SSS)"
+
+kleppmann2022:
+  type: article
+  title: "Making CRDTs Byzantine Fault Tolerant"
+  author:
+    - Kleppmann, Martin
+  date: 2022
+  parent:
+    type: proceedings
+    title: "Proceedings of the 9th Workshop on Principles and Practice of Consistency for Distributed Data (PaPoC)"
+
+salmi2026aimp:
+  type: article
+  title: "AIMP: AI Mesh Protocol\u2014Design and Evaluation of a Serverless Merkle-CRDT Protocol for Edge Agent Synchronization"
+  author:
+    - Salmi, Fabrizio
+  date: 2026
+  url: "https://www.researchgate.net/publication/403127328"
+
+salmi2026l3:
+  type: article
+  title: "Byzantine-Tolerant Belief Aggregation over Merkle-DAGs: A Deterministic Epistemic Layer for Decentralized AI"
+  author:
+    - Salmi, Fabrizio
+  date: 2026
+
+jaynes2003:
+  type: book
+  title: "Probability Theory: The Logic of Science"
+  author:
+    - Jaynes, Edwin T.
+  date: 2003
+  publisher: Cambridge University Press
+
+genest1986:
+  type: article
+  title: "Combining Probability Distributions: A Critique and an Annotated Bibliography"
+  author:
+    - Genest, Christian
+    - Zidek, James V.
+  date: 1986
+  parent:
+    type: periodical
+    title: "Statistical Science"
+  volume: 1
+  issue: 1
+  page-range: 114-148
+
+josang2016:
+  type: book
+  title: "Subjective Logic: A Formalism for Reasoning Under Uncertainty"
+  author:
+    - "Jøsang, Audun"
+  date: 2016
+  publisher: Springer
+
+shafer1976:
+  type: book
+  title: "A Mathematical Theory of Evidence"
+  author:
+    - Shafer, Glenn
+  date: 1976
+  publisher: Princeton University Press
+
+kamvar2003:
+  type: article
+  title: "The EigenTrust Algorithm for Reputation Management in P2P Networks"
+  author:
+    - Kamvar, Sepandar D.
+    - Schlosser, Mario T.
+    - Garcia-Molina, Hector
+  date: 2003
+  parent:
+    type: proceedings
+    title: "Proceedings of the 12th International Conference on World Wide Web (WWW)"
+
+nelsen2006:
+  type: book
+  title: "An Introduction to Copulas"
+  author:
+    - Nelsen, Roger B.
+  date: 2006
+  publisher: Springer
+  edition: 2
+
+charikar2002:
+  type: article
+  title: "Similarity Estimation Techniques from Rounding Algorithms"
+  author:
+    - Charikar, Moses S.
+  date: 2002
+  parent:
+    type: proceedings
+    title: "Proceedings of the 34th Annual ACM Symposium on Theory of Computing (STOC)"
+
+niemeyer2008:
+  type: article
+  title: "Geohash"
+  author:
+    - Niemeyer, Gustavo
+  date: 2008
+  url: "https://en.wikipedia.org/wiki/Geohash"
+
+helium2020:
+  type: article
+  title: "Helium: A Decentralized Wireless Infrastructure"
+  author:
+    - Haleem, Amir
+    - Allen, Andrew
+    - Thompson, Andrew
+    - Nijdam, Marc
+    - Tawari, Rahul
+  date: 2020
+
+dwork1992:
+  type: article
+  title: "Pricing via Processing or Combatting Junk Mail"
+  author:
+    - Dwork, Cynthia
+    - Naor, Moni
+  date: 1992
+  parent:
+    type: proceedings
+    title: "Advances in Cryptology (CRYPTO)"

@@ -1,12 +1,41 @@
-# AIMP (AI Mesh Protocol) v0.1.0
+# AIMP (AI Mesh Protocol)
 
-**[Paper on ResearchGate](https://www.researchgate.net/publication/403127328_AIMP_AI_Mesh_Protocol_Design_and_Evaluation_of_a_Serverless_Merkle-CRDT_Protocol_for_Edge_Agent_Synchronization)**
+**[Paper 1 — L1/L2 (v0.1.0): Merkle-CRDT Protocol](https://www.researchgate.net/publication/403127328_AIMP_AI_Mesh_Protocol_Design_and_Evaluation_of_a_Serverless_Merkle-CRDT_Protocol_for_Edge_Agent_Synchronization)** |
+**[Paper 2 — L3 (v0.2.0): Epistemic Layer](v0.2.0/AIMP-l3-epistemic-layer.pdf)** |
+**[Paper 3 — L3 (v0.3.0): Correlation-Aware Aggregation](v0.3.0/AIMP-v030-correlation-aware.pdf)**
 
 **AIMP** is an experimental, serverless networking protocol designed for resilient state synchronization between autonomous agents in fragmented, low-bandwidth networks.
 
 Unlike traditional cloud-based protocols, AIMP operates on a **Local-First** principle, utilizing Merkle-CRDTs and cryptographic identity to ensure eventual consistency without a central authority or global DNS.
 
 ---
+
+## Protocol Stack
+
+| Layer | Version | Purpose |
+|-------|---------|---------|
+| **L1/L2** | v0.1.0 | Merkle-DAG CRDT, Ed25519 signing, Noise Protocol transport, BFT quorum |
+| **L3** | v0.2.0 | Epistemic Layer: integer log-odds, two-pass trust propagation, Sybil-resistant reputation |
+| **L3** | v0.3.0 | Correlation-Aware Aggregation: geometric discounting for correlated sensors/LLMs |
+
+### v0.3.0 — Correlation-Aware Belief Aggregation
+
+L3 v0.2.0 assumes all evidence sources are statistically independent (Naive Bayes). This produces pathological hyper-confidence when physically correlated sensors (e.g., 100 IoT devices on the same rooftop) or semantically correlated agents (e.g., LLMs fine-tuned on the same dataset) report concordant observations.
+
+v0.3.0 introduces **Grid-Cell Correlation Discounting**:
+
+- Each claim carries an optional `CorrelationCell(u64)` — a discrete coordinate for spatial, semantic, or temporal proximity.
+- Within each cell, evidence is ranked by strength and geometrically discounted: the strongest source retains 100% weight; each subsequent source receives `discount_bps^rank / 10000^rank` (default 30%).
+- With 30% discount, N correlated sensors converge to ~1.42x the evidence of a single sensor — regardless of N. The naive approach would produce Nx amplification.
+- The CRDT associativity challenge (geometric decay is non-associative across partial merges) is solved architecturally: epoch reduction buckets by `(temporal_grid, fingerprint, correlation_cell)`, guaranteeing atomic computation on the complete set.
+- Claims with `correlation_cell: None` behave identically to v0.2.0 (zero regression).
+- All arithmetic is integer-only (i32/i64, basis points). No floats. ZK-ready.
+
+```rust
+// 100 co-located sensors, 70% confidence each:
+// v0.2.0 (naive):  100 × 847 = 84,700 milli-log-odds → ~100% (hyper-confident)
+// v0.3.0 (30%):    847 × Σ(0.3^i) ≈ 1,207 milli-log-odds → ~77% (realistic)
+```
 
 ## Architecture
 
@@ -17,17 +46,20 @@ aimp_node/          Rust reference implementation (Cargo workspace member)
     crypto/         Ed25519 identity, BLAKE3 hashing, zero-trust firewall
     network/        UDP gossip, Noise Protocol XX sessions, per-peer rate limiting
     protocol/       Wire format (MessagePack), typed payload enum
+    epistemic.rs    L3 Epistemic Layer (v0.3.0): log-odds, trust propagation, correlation discounting
     decision_engine.rs  Pluggable deterministic decision engine (trait + rule engine + hot-reload)
     error.rs        Unified AimpError type hierarchy
     dashboard/      Ratatui TUI
     config.rs       Dynamic configuration with validation
     event/          Structured logging + Prometheus metrics (counters + histograms)
-  tests/            Integration tests
+  tests/            Integration tests (64 passing)
   benches/          Criterion benchmarks
 aimp_testbed/       Python SDK (aimp-client) + CLI tool + chaos testing
 deploy/             Systemd service, Firecracker microVM, install script
-formal/             TLA+ convergence + quorum safety specification
-docs/               Whitepaper (Typst source + PDF)
+formal/             TLA+ convergence + quorum safety + belief convergence specification
+docs/               Paper 1 (Typst source + PDF)
+v0.2.0/             Paper 2: Epistemic Layer (Typst source + PDF)
+v0.3.0/             Paper 3: Correlation-Aware Aggregation (Typst source + PDF)
 ```
 
 ## Strategic Advantages
@@ -40,9 +72,9 @@ docs/               Whitepaper (Typst source + PDF)
 | **Integrity**    | Cryptographic (Merkle-DAG) | Log-based                |
 | **Hardware**     | Edge/IoT Optimized         | Data Center Grade        |
 
-## Key Features (v0.1.0)
+## Key Features
 
-**Core Engine**
+**Core Engine (v0.1.0)**
 - Actor Model with zero-shared-state CRDT via `tokio::mpsc`
 - Slab/Arena allocation with O(1) insertion and SoA layout
 - Durable persistence via redb with ChaCha20Poly1305 encryption at rest
@@ -50,6 +82,16 @@ docs/               Whitepaper (Typst source + PDF)
 - Cached merkle root with invalidation-on-write
 - Real mark-and-sweep GC with slab memory reclamation
 - Epoch-based GC tracking integrated into the CRDT actor
+
+**Epistemic Layer (v0.2.0 + v0.3.0)**
+- Integer log-odds arithmetic (i32, milli-log-odds) — no floats, 100% deterministic
+- Two-pass Markovian trust propagation (Supports → Contradictions, no oscillation)
+- Sybil-resistant reputation: new nodes start at 0, delegation required, reputation spending
+- Grid-aligned epoch reduction with materialized compaction (Summaries survive GC)
+- Cycle detection (sorted DFS) prevents confidence inflation loops
+- **v0.3.0**: Correlation-aware aggregation — geometric discounting for co-located sensors / LLMs
+- **v0.3.0**: Atomic cell reduction — bucketing by (epoch, fingerprint, cell) for CRDT safety
+- 98-142x faster than Subjective Logic / Dempster-Shafer (bit-identical across architectures)
 
 **Networking & Security**
 - Noise Protocol XX encrypted sessions (default on)
@@ -163,7 +205,7 @@ docker build -f Dockerfile.bench -t aimp-bench . && \
 
 ## Formal Verification (TLA+)
 
-The protocol's core safety properties are formally specified in `formal/AimpCrdtConvergence.tla` and verified with the TLC model checker:
+### L2 — CRDT Convergence (`formal/AimpCrdtConvergence.tla`)
 
 | Property | Description | Status |
 |----------|-------------|--------|
@@ -171,9 +213,17 @@ The protocol's core safety properties are formally specified in `formal/AimpCrdt
 | **QuorumSafety** | If quorum is reached for a prompt, the decision is unique (no conflicting decisions) | Verified |
 | **QuorumLiveness** | If all nodes vote for the same decision, the quorum threshold is eventually reached | Verified |
 
-TLC explored **46,063 states** (9,558 distinct) to depth 16 in <1 second with 10 parallel workers and zero violations. Model parameters: 2 nodes, 3 mutations/node, 2 prompts, 2 decisions, quorum threshold = 2.
+TLC explored **46,063 states** (9,558 distinct) to depth 16 in <1 second with 10 parallel workers and zero violations. **Bugs found:** 2 correctness bugs (out-of-order heads, quorum double-voting). Both fixed.
 
-**Bugs found during verification:** TLC uncovered 2 correctness bugs in the original spec (also present in the Rust code): (1) out-of-order Receive producing incorrect heads, and (2) quorum double-voting allowing conflicting decisions. Both fixed in the TLA+ spec and Rust implementation.
+### L3 — Belief Convergence (`formal/AimpBeliefConvergence.tla`)
+
+| Property | Description | Status |
+|----------|-------------|--------|
+| **BeliefDeterminism** | Same claims + graph → identical BeliefState on all nodes | Verified |
+| **NoOscillation** | Trust values converge monotonically (no Pass 2 → Pass 1 feedback) | Verified |
+| **ContradictionSafety** | Single contradiction cannot flip Accepted → Rejected in one step | Verified |
+
+Exhaustive bounded verification: **199,902 configurations** (5 properties, up to N=6 nodes). **Bugs found:** 1 trust propagation formula bug (t_{k+1} = t_k + At_k vs correct t_{k+1} = t_0 + At_k). Fixed.
 
 ## Edge Deployment
 
@@ -298,6 +348,10 @@ AIMP builds on concepts from the following areas of distributed systems research
 - **CRDTs** — Shapiro et al., "A Comprehensive Study of Convergent and Commutative Replicated Data Types" (INRIA, 2011)
 - **Merkle-CRDTs** — Kleppmann & Howard, "Byzantine Eventual Consistency and the Fundamental Limits of Peer-to-Peer Databases" (2022)
 - **BFT Consensus** — Castro & Liskov, "Practical Byzantine Fault Tolerance" (OSDI, 1999)
+- **Bayesian Aggregation** — Jaynes, "Probability Theory: The Logic of Science" (2003); log-odds arithmetic for belief fusion
+- **Trust Networks** — Kamvar et al., "The EigenTrust Algorithm for Reputation Management in P2P Networks" (WWW, 2003)
+- **Subjective Logic** — Jøsang, "Subjective Logic: A Formalism for Reasoning Under Uncertainty" (Springer, 2016)
+- **Copulas** — Nelsen, "An Introduction to Copulas" (Springer, 2006); correlation modeling for dependent evidence
 - **Noise Protocol** — Perrin, "The Noise Protocol Framework" (2018); used via the `snow` crate for XX handshake pattern
 - **Gossip Protocols** — Demers et al., "Epidemic Algorithms for Replicated Database Maintenance" (1987)
 - **Merkle Trees** — Merkle, "A Digital Signature Based on a Conventional Encryption Function" (CRYPTO, 1987)

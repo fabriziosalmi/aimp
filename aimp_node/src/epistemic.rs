@@ -1,4 +1,4 @@
-//! AIMP v0.2.0 — Epistemic Layer (L3: Meaning)
+//! AIMP v0.3.0 — Epistemic Layer (L3: Meaning)
 //!
 //! Cognitive middleware built ABOVE aimp-core. L3 never touches L2 internals.
 //!
@@ -16,6 +16,9 @@
 //! 11. **Trust clamping** — max(0, source_trust) before propagation; rejected claims have no voice (Gemini R5)
 //! 12. **Sybil defense** — new nodes start at reputation 0, not neutral; require delegation to vote (Gemini R5)
 //! 13. **Summary overlap** — epoch tick windows prevent double-counting on async compaction (Gemini R5)
+//! 14. **Correlation discounting** — correlated claims (same grid cell) get geometric decay (v0.3.0)
+//! 15. **Atomic cell reduction** — bucketing by (epoch, fingerprint, cell) ensures discount is always
+//!     computed on the full stabilized set, eliminating associativity requirement for geometric decay (v0.3.0)
 
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -121,8 +124,13 @@ impl LogOdds {
     /// Bayesian aggregation: sum log-odds of independent evidence.
     /// Clamps to SAFE_MIN..SAFE_MAX (not i32 extremes) to preserve
     /// the associativity invariant required by the CRDT SemanticReducer.
+    /// Uses saturating addition to prevent i64 overflow panic under
+    /// adversarial claim flooding (v0.3.0 hardening).
     pub fn aggregate(evidence: &[LogOdds]) -> LogOdds {
-        let sum: i64 = evidence.iter().map(|e| e.0 as i64).sum();
+        let mut sum: i64 = 0;
+        for e in evidence {
+            sum = sum.saturating_add(e.0 as i64);
+        }
         LogOdds(sum.clamp(Self::SAFE_MIN as i64, Self::SAFE_MAX as i64) as i32)
     }
 
@@ -131,6 +139,68 @@ impl LogOdds {
     pub fn update(self, evidence: LogOdds) -> LogOdds {
         let sum = (self.0 as i64) + (evidence.0 as i64);
         LogOdds(sum.clamp(Self::SAFE_MIN as i64, Self::SAFE_MAX as i64) as i32)
+    }
+
+    /// Correlation-aware aggregation (v0.3.0).
+    ///
+    /// Groups evidence by CorrelationCell, applies geometric discount within
+    /// each group, then sums group contributions independently.
+    ///
+    /// Within each cell group, claims are sorted by (|logodds| desc, id asc)
+    /// for deterministic ranking. The strongest claim gets 100% weight;
+    /// subsequent claims get discount_bps^rank / 10000^rank.
+    ///
+    /// Claims with cell=None are treated as singletons (no discounting).
+    ///
+    /// NOTE: This function is NOT required to be associative across partial
+    /// merges. The grid-aligned epoch reduction guarantees that discounting
+    /// is always computed atomically on the full stabilized set within a
+    /// (epoch, fingerprint, cell) bucket. See design rule #15.
+    pub fn aggregate_correlated(
+        evidence: &[(LogOdds, Option<CorrelationCell>, ClaimHash)],
+        discount_bps: u16,
+    ) -> LogOdds {
+        if evidence.is_empty() {
+            return LogOdds::NEUTRAL;
+        }
+
+        // Group by cell. None → each claim is its own group.
+        let mut cell_groups: std::collections::BTreeMap<Option<u64>, Vec<(LogOdds, ClaimHash)>> =
+            std::collections::BTreeMap::new();
+        for (lo, cell, id) in evidence {
+            let key = cell.map(|c| c.0);
+            cell_groups.entry(key).or_default().push((*lo, *id));
+        }
+
+        let mut total: i64 = 0;
+
+        for (key, mut group) in cell_groups {
+            if key.is_none() {
+                // Uncorrelated claims: full weight each (v0.2.0 behavior)
+                // SECURITY: saturating_add prevents i64 overflow panic under
+                // adversarial claim flooding (billions of LogOdds::MAX claims).
+                for (lo, _) in &group {
+                    total = total.saturating_add(lo.0 as i64);
+                }
+                continue;
+            }
+
+            // Sort by |logodds| descending, then by id for deterministic tiebreak
+            group.sort_by(|(lo_a, id_a), (lo_b, id_b)| {
+                lo_b.0
+                    .abs()
+                    .cmp(&lo_a.0.abs())
+                    .then_with(|| id_a.cmp(id_b))
+            });
+
+            for (rank, (lo, _)) in group.iter().enumerate() {
+                let factor = discount_factor(rank as u32, discount_bps);
+                let discounted = (lo.0 as i64) * (factor as i64) / 10000;
+                total = total.saturating_add(discounted);
+            }
+        }
+
+        LogOdds(total.clamp(Self::SAFE_MIN as i64, Self::SAFE_MAX as i64) as i32)
     }
 
     /// Is this belief more likely true than false?
@@ -281,6 +351,42 @@ pub type ClaimArenaId = u32;
 /// Full cryptographic identifier for network/persistence.
 pub type ClaimHash = [u8; 32];
 
+// ─── Correlation Cell (v0.3.0) ─────────────────────────────
+//
+// Discrete correlation coordinate. Two claims in the same cell are treated
+// as correlated; claims in different cells are independent.
+//
+// Construction is application-defined (same philosophy as edge generation):
+// - IoT: geohash truncated to N characters → u64
+// - LLM: model_family_id (llama=1, mistral=2, gpt=3) → u64
+// - Temporal: tick / temporal_grid_size → u64
+// - Composite: BLAKE3(spatial_cell || model_family || temporal_bucket) → u64
+
+/// Discrete correlation coordinate for spatial/semantic proximity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct CorrelationCell(pub u64);
+
+/// Maximum geometric decay depth. After this many ranks the discount factor
+/// is effectively zero. Matches the temporal decay shift cap (30).
+const MAX_DISCOUNT_DEPTH: u32 = 30;
+
+/// Default discount factor in basis points (30% = 3000 bps).
+/// Each additional correlated claim contributes DISCOUNT_BPS/10000 of
+/// the previous claim's weight.
+pub const DEFAULT_DISCOUNT_BPS: u16 = 3000;
+
+/// Compute the geometric discount factor for the i-th correlated claim (0-indexed).
+/// Returns value in basis points (0..=10000). Integer-only, no floats.
+///
+/// rank=0 → 10000 (100%), rank=1 → discount_bps, rank=2 → discount_bps²/10000, ...
+pub fn discount_factor(rank: u32, discount_bps: u16) -> u64 {
+    let mut factor: u64 = 10000;
+    for _ in 0..rank.min(MAX_DISCOUNT_DEPTH) {
+        factor = factor * (discount_bps as u64) / 10000;
+    }
+    factor
+}
+
 // ─── Semantic Fingerprint (ChatGPT Fix: dual-key) ───────────
 
 /// Dual-key semantic fingerprint for robust grouping.
@@ -314,11 +420,14 @@ pub struct Claim {
     pub confidence: LogOdds,
     /// BLAKE3 hash of ORIGINAL evidence source (anti Sybil amplification).
     /// NOTE: This protects against network-level echo chambers only.
-    /// Correlated physical sensor failure is an application-level concern
-    /// and MUST be documented as a limitation. (Gemini review, round 2)
+    /// Physical correlation is handled by CorrelationCell discounting (v0.3.0).
     pub evidence_source: ClaimHash,
     /// Lamport timestamp
     pub tick: u64,
+    /// Optional correlation cell (v0.3.0). Claims in the same cell are treated
+    /// as correlated and receive geometric discounting during aggregation.
+    /// None = uncorrelated (backward compatible with v0.2.0 behavior).
+    pub correlation_cell: Option<CorrelationCell>,
 }
 
 /// The semantic type of a claim.
@@ -1084,6 +1193,21 @@ impl ExactMatchReducer {
         claims: &[Claim],
         reputations: &dyn ReputationTracker,
     ) -> Option<Claim> {
+        self.reduce_with_reputation_correlated(claims, reputations, DEFAULT_DISCOUNT_BPS)
+    }
+
+    /// Reputation-aware reduction with configurable correlation discount.
+    ///
+    /// v0.3.0: Claims are grouped by CorrelationCell within the bucket.
+    /// Within each cell group, evidence is geometrically discounted.
+    /// The grid-aligned epoch reduction guarantees atomic execution on the
+    /// full bucket, so associativity of the discount is not required.
+    pub fn reduce_with_reputation_correlated(
+        &self,
+        claims: &[Claim],
+        reputations: &dyn ReputationTracker,
+        discount_bps: u16,
+    ) -> Option<Claim> {
         if !self.can_reduce(claims) {
             return None;
         }
@@ -1099,10 +1223,9 @@ impl ExactMatchReducer {
             _ => return None,
         };
 
-        // Reputation-weighted aggregation: each claim's confidence is
-        // scaled by the author's reputation BEFORE summation.
+        // Reputation-weighted evidence with correlation cell metadata.
         let mut unique_sources: SmallVec<[ClaimHash; 16]> = SmallVec::new();
-        let mut evidence_logodds: Vec<LogOdds> = Vec::new();
+        let mut evidence_tuples: Vec<(LogOdds, Option<CorrelationCell>, ClaimHash)> = Vec::new();
 
         for c in &sorted {
             let rep = reputations.reputation(&c.origin);
@@ -1113,15 +1236,22 @@ impl ExactMatchReducer {
                 unique_sources.push(c.evidence_source);
                 // CRITICAL: Weight by reputation. A 1-bps Sybil contributes
                 // almost nothing. A 10000-bps anchor contributes full weight.
-                evidence_logodds.push(rep.weight_evidence(c.confidence));
+                evidence_tuples.push((
+                    rep.weight_evidence(c.confidence),
+                    c.correlation_cell,
+                    c.id,
+                ));
             }
         }
 
-        if evidence_logodds.is_empty() {
+        if evidence_tuples.is_empty() {
             return None;
         }
 
-        let aggregated = LogOdds::aggregate(&evidence_logodds);
+        // v0.3.0: Correlation-aware aggregation with geometric discounting
+        let aggregated = LogOdds::aggregate_correlated(&evidence_tuples, discount_bps);
+        // Pre-discount values for variance/range statistics
+        let evidence_logodds: Vec<LogOdds> = evidence_tuples.iter().map(|(lo, _, _)| *lo).collect();
 
         let n = evidence_logodds.len() as i128;
         let mean = if n > 0 {
@@ -1155,6 +1285,17 @@ impl ExactMatchReducer {
         let tick_start = sorted.iter().map(|c| c.tick).min().unwrap_or(0);
         let tick_end = sorted.iter().map(|c| c.tick).max().unwrap_or(0);
 
+        // v0.3.0: Include correlation cell in Summary hash for determinism.
+        // SAFETY: When called from reduce_epoch_aligned_correlated(), all claims
+        // in the bucket are guaranteed to share the same cell (triple bucketing).
+        // When called directly, callers SHOULD ensure cell homogeneity.
+        let summary_cell = first.correlation_cell;
+        debug_assert!(
+            sorted.iter().all(|c| c.correlation_cell == summary_cell),
+            "reduce_with_reputation_correlated: mixed cells in bucket (expected {:?})",
+            summary_cell
+        );
+
         let mut hasher = blake3::Hasher::new();
         hasher.update(&first.fingerprint.primary);
         hasher.update(&(unique_sources.len() as u32).to_le_bytes());
@@ -1162,6 +1303,10 @@ impl ExactMatchReducer {
         hasher.update(&tick_end.to_le_bytes());
         hasher.update(&aggregated.value().to_le_bytes());
         hasher.update(&variance_milli.to_le_bytes());
+        // v0.3.0: cell is part of the hash — different cells produce different Summaries
+        if let Some(cell) = summary_cell {
+            hasher.update(&cell.0.to_le_bytes());
+        }
         let id = *hasher.finalize().as_bytes();
 
         Some(Claim {
@@ -1182,42 +1327,65 @@ impl ExactMatchReducer {
             confidence: aggregated,
             evidence_source: id,
             tick: tick_end,
+            // v0.3.0: Summary inherits the cell of its input claims.
+            // All claims in this bucket share the same cell (guaranteed by
+            // grid-aligned bucketing on (epoch, fingerprint, cell)).
+            correlation_cell: summary_cell,
         })
     }
 }
 
 impl ExactMatchReducer {
-    /// Grid-aligned epoch reduction: eliminates Summary double-counting
-    /// under network partitions.
+    /// Grid-aligned epoch reduction with correlation-aware bucketing (v0.3.0).
     ///
-    /// Claims are bucketed into fixed-size temporal grids (e.g., every
-    /// 10,000 Lamport ticks). Two nodes that independently compact the
-    /// same claims in the same grid produce byte-identical Summaries
-    /// (same BLAKE3 hash), which the L2 CRDT deduplicates natively.
+    /// Claims are bucketed by the triple (temporal_grid, fingerprint, correlation_cell).
+    /// This guarantees that geometric discounting is always computed atomically
+    /// on the full stabilized set within each bucket — eliminating the
+    /// associativity requirement for the discount function.
     ///
-    /// Returns one Summary per grid bucket that contains ≥2 claims.
+    /// Two nodes that independently compact the same claims produce
+    /// byte-identical Summaries (same BLAKE3 hash), which L2 deduplicates.
+    ///
+    /// Returns one Summary per bucket that contains ≥2 claims.
     pub fn reduce_epoch_aligned(
         &self,
         claims: &[Claim],
         grid_size: u64,
         reputations: Option<&dyn ReputationTracker>,
     ) -> Vec<Claim> {
+        self.reduce_epoch_aligned_correlated(claims, grid_size, reputations, DEFAULT_DISCOUNT_BPS)
+    }
+
+    /// Grid-aligned epoch reduction with configurable discount.
+    pub fn reduce_epoch_aligned_correlated(
+        &self,
+        claims: &[Claim],
+        grid_size: u64,
+        reputations: Option<&dyn ReputationTracker>,
+        discount_bps: u16,
+    ) -> Vec<Claim> {
         if grid_size == 0 || claims.len() < 2 {
             return Vec::new();
         }
 
-        // Bucket claims by grid-aligned epoch
-        let mut buckets: std::collections::BTreeMap<u64, Vec<Claim>> =
+        // v0.3.0: Bucket by (epoch, correlation_cell) — the fingerprint check
+        // is handled by can_reduce(). This triple bucketing guarantees atomic
+        // discount computation per cell per epoch.
+        let mut buckets: std::collections::BTreeMap<(u64, Option<u64>), Vec<Claim>> =
             std::collections::BTreeMap::new();
         for claim in claims {
-            let bucket = claim.tick / grid_size; // deterministic grid assignment
-            buckets.entry(bucket).or_default().push(claim.clone());
+            let epoch = claim.tick / grid_size;
+            let cell_key = claim.correlation_cell.map(|c| c.0);
+            buckets
+                .entry((epoch, cell_key))
+                .or_default()
+                .push(claim.clone());
         }
 
         let mut summaries = Vec::new();
         for bucket_claims in buckets.values() {
             let result = if let Some(rep) = reputations {
-                self.reduce_with_reputation(bucket_claims, rep)
+                self.reduce_with_reputation_correlated(bucket_claims, rep, discount_bps)
             } else {
                 self.reduce(bucket_claims)
             };
@@ -1342,6 +1510,8 @@ impl SemanticReducer for ExactMatchReducer {
         let tick_start = sorted.iter().map(|c| c.tick).min().unwrap_or(0);
         let tick_end = sorted.iter().map(|c| c.tick).max().unwrap_or(0);
 
+        let summary_cell = first.correlation_cell;
+
         let mut hasher = blake3::Hasher::new();
         hasher.update(&first.fingerprint.primary);
         hasher.update(&(unique_sources.len() as u32).to_le_bytes());
@@ -1349,6 +1519,9 @@ impl SemanticReducer for ExactMatchReducer {
         hasher.update(&tick_end.to_le_bytes());
         hasher.update(&aggregated.value().to_le_bytes());
         hasher.update(&variance_milli.to_le_bytes());
+        if let Some(cell) = summary_cell {
+            hasher.update(&cell.0.to_le_bytes());
+        }
         let id = *hasher.finalize().as_bytes();
 
         // Gemini R6 fix: evidence_source must be unique per Summary, NOT [0u8; 32].
@@ -1372,6 +1545,7 @@ impl SemanticReducer for ExactMatchReducer {
             confidence: aggregated,
             evidence_source: id, // Unique per Summary — prevents dedup collision
             tick: tick_end,
+            correlation_cell: summary_cell,
         })
     }
 
@@ -1648,11 +1822,25 @@ mod tests {
     }
 
     fn make_claim(sensor: u8, data: &[u8], logodds: i32, tick: u64, source: [u8; 32]) -> Claim {
+        make_claim_with_cell(sensor, data, logodds, tick, source, None)
+    }
+
+    fn make_claim_with_cell(
+        sensor: u8,
+        data: &[u8],
+        logodds: i32,
+        tick: u64,
+        source: [u8; 32],
+        cell: Option<CorrelationCell>,
+    ) -> Claim {
         let fp = make_fingerprint(data, sensor);
         let mut hasher = blake3::Hasher::new();
         hasher.update(&fp.primary);
         hasher.update(&tick.to_le_bytes());
         hasher.update(&source);
+        if let Some(c) = cell {
+            hasher.update(&c.0.to_le_bytes());
+        }
         let id = *hasher.finalize().as_bytes();
 
         Claim {
@@ -1666,6 +1854,7 @@ mod tests {
             confidence: LogOdds::new(logodds),
             evidence_source: source,
             tick,
+            correlation_cell: cell,
         }
     }
 
@@ -2688,6 +2877,7 @@ mod tests {
             confidence: LogOdds::new(4000),
             evidence_source: summary_id,
             tick: 10,
+            correlation_cell: None,
         };
 
         // The original C1 hash (now GC'd — NOT in claims array)
@@ -3072,5 +3262,280 @@ mod tests {
         let r1 = ConfidenceInterval::aggregate(&intervals);
         let r2 = ConfidenceInterval::aggregate(&intervals);
         assert_eq!(r1, r2, "aggregate must be deterministic");
+    }
+
+    // ── v0.3.0: Correlation Discounting tests ──
+
+    #[test]
+    fn test_discount_factor_geometric_decay() {
+        // rank=0 → 100%, rank=1 → 30%, rank=2 → 9%, rank=3 → 2.7%
+        assert_eq!(discount_factor(0, 3000), 10000);
+        assert_eq!(discount_factor(1, 3000), 3000);
+        assert_eq!(discount_factor(2, 3000), 900);
+        assert_eq!(discount_factor(3, 3000), 270);
+        // Eventually reaches 0
+        assert_eq!(discount_factor(10, 3000), 0);
+        // Capped at MAX_DISCOUNT_DEPTH
+        assert_eq!(discount_factor(100, 3000), discount_factor(30, 3000));
+    }
+
+    #[test]
+    fn test_discount_factor_full_weight() {
+        // discount_bps=10000 → no discounting at all
+        assert_eq!(discount_factor(0, 10000), 10000);
+        assert_eq!(discount_factor(1, 10000), 10000);
+        assert_eq!(discount_factor(5, 10000), 10000);
+    }
+
+    #[test]
+    fn test_discount_factor_zero_kills_all() {
+        // discount_bps=0 → only rank 0 gets weight
+        assert_eq!(discount_factor(0, 0), 10000);
+        assert_eq!(discount_factor(1, 0), 0);
+    }
+
+    #[test]
+    fn test_uncorrelated_aggregate_unchanged() {
+        // Claims with None cell = v0.2.0 behavior (pure sum)
+        let id_a = [1u8; 32];
+        let id_b = [2u8; 32];
+        let evidence = vec![
+            (LogOdds::new(1000), None, id_a),
+            (LogOdds::new(2000), None, id_b),
+        ];
+        let result = LogOdds::aggregate_correlated(&evidence, DEFAULT_DISCOUNT_BPS);
+        // Uncorrelated: full weight each = 1000 + 2000 = 3000
+        assert_eq!(result.value(), 3000);
+        // Same as plain aggregate
+        assert_eq!(
+            result,
+            LogOdds::aggregate(&[LogOdds::new(1000), LogOdds::new(2000)])
+        );
+    }
+
+    #[test]
+    fn test_same_cell_discounted() {
+        // 5 claims in same cell, all confidence=1000
+        let cell = Some(CorrelationCell(42));
+        let evidence: Vec<_> = (0..5u8)
+            .map(|i| {
+                let mut id = [0u8; 32];
+                id[0] = i;
+                (LogOdds::new(1000), cell, id)
+            })
+            .collect();
+
+        let correlated = LogOdds::aggregate_correlated(&evidence, 3000);
+
+        // Independent sum would be 5000
+        let independent = LogOdds::aggregate(&vec![LogOdds::new(1000); 5]);
+        assert_eq!(independent.value(), 5000);
+
+        // Correlated must be less (1000 + 300 + 90 + 27 + 8 = 1425)
+        assert!(
+            correlated.value() < independent.value(),
+            "correlated {} should be < independent {}",
+            correlated.value(),
+            independent.value()
+        );
+        // First claim gets full weight, rest geometrically discounted
+        assert!(correlated.value() > 1000, "at least one full claim");
+        assert!(correlated.value() < 2000, "heavily discounted: {}", correlated.value());
+    }
+
+    #[test]
+    fn test_different_cells_independent() {
+        // 3 claims in 3 different cells → no discounting
+        let evidence = vec![
+            (LogOdds::new(1000), Some(CorrelationCell(1)), [1u8; 32]),
+            (LogOdds::new(1000), Some(CorrelationCell(2)), [2u8; 32]),
+            (LogOdds::new(1000), Some(CorrelationCell(3)), [3u8; 32]),
+        ];
+        let result = LogOdds::aggregate_correlated(&evidence, 3000);
+        // Each cell has 1 claim → no discount → 3000
+        assert_eq!(result.value(), 3000);
+    }
+
+    #[test]
+    fn test_mixed_correlated_and_independent() {
+        // 2 claims in cell A + 1 claim in cell B
+        let evidence = vec![
+            (LogOdds::new(1000), Some(CorrelationCell(1)), [1u8; 32]),
+            (LogOdds::new(1000), Some(CorrelationCell(1)), [2u8; 32]),
+            (LogOdds::new(1000), Some(CorrelationCell(2)), [3u8; 32]),
+        ];
+        let result = LogOdds::aggregate_correlated(&evidence, 3000);
+        // Cell A: 1000 + 300 = 1300. Cell B: 1000. Total: 2300
+        assert_eq!(result.value(), 2300);
+    }
+
+    #[test]
+    fn test_discount_commutativity() {
+        // Order of claims must not affect result
+        let cell = Some(CorrelationCell(1));
+        let ev_a = vec![
+            (LogOdds::new(2000), cell, [1u8; 32]),
+            (LogOdds::new(1000), cell, [2u8; 32]),
+            (LogOdds::new(500), cell, [3u8; 32]),
+        ];
+        let ev_b = vec![
+            (LogOdds::new(500), cell, [3u8; 32]),
+            (LogOdds::new(2000), cell, [1u8; 32]),
+            (LogOdds::new(1000), cell, [2u8; 32]),
+        ];
+        let r_a = LogOdds::aggregate_correlated(&ev_a, 3000);
+        let r_b = LogOdds::aggregate_correlated(&ev_b, 3000);
+        assert_eq!(r_a, r_b, "must be commutative: {} vs {}", r_a.value(), r_b.value());
+    }
+
+    #[test]
+    fn test_discount_idempotency() {
+        // Duplicate claims (same id) should be handled at dedup layer.
+        // aggregate_correlated itself doesn't dedup — that's the Reducer's job.
+        // But identical ids get the same sort position → deterministic.
+        let cell = Some(CorrelationCell(1));
+        let id = [1u8; 32];
+        let ev = vec![
+            (LogOdds::new(1000), cell, id),
+            (LogOdds::new(1000), cell, id),
+        ];
+        let r1 = LogOdds::aggregate_correlated(&ev, 3000);
+        // Both have same id → sorted identically → deterministic
+        let r2 = LogOdds::aggregate_correlated(&ev, 3000);
+        assert_eq!(r1, r2);
+    }
+
+    #[test]
+    fn test_epoch_aligned_splits_by_cell() {
+        // v0.3.0: Two claims in same epoch but different cells → separate Summaries
+        let c1 = make_claim_with_cell(1, b"temp=20", 2000, 100, [10u8; 32], Some(CorrelationCell(1)));
+        let c2 = make_claim_with_cell(1, b"temp=20", 2000, 150, [11u8; 32], Some(CorrelationCell(2)));
+        // Need a third claim to have ≥2 per bucket for reduction
+        let c3 = make_claim_with_cell(1, b"temp=20", 2000, 120, [12u8; 32], Some(CorrelationCell(1)));
+
+        let reducer = ExactMatchReducer;
+        let summaries = reducer.reduce_epoch_aligned(&[c1, c2, c3], 10000, None);
+
+        // Cell 1 has 2 claims → 1 Summary. Cell 2 has 1 claim → no Summary.
+        assert_eq!(summaries.len(), 1, "only cell 1 has enough claims to reduce");
+        assert_eq!(
+            summaries[0].correlation_cell,
+            Some(CorrelationCell(1)),
+            "Summary inherits cell"
+        );
+    }
+
+    #[test]
+    fn test_epoch_aligned_cell_isolation() {
+        // 3 claims in cell A, 3 claims in cell B → 2 separate Summaries
+        let mut claims = Vec::new();
+        for i in 0..3u8 {
+            let mut src = [0u8; 32];
+            src[0] = i;
+            claims.push(make_claim_with_cell(
+                1, b"temp=20", 2000, 100 + i as u64, src, Some(CorrelationCell(1)),
+            ));
+        }
+        for i in 0..3u8 {
+            let mut src = [0u8; 32];
+            src[0] = 10 + i;
+            claims.push(make_claim_with_cell(
+                1, b"temp=20", 2000, 100 + i as u64, src, Some(CorrelationCell(2)),
+            ));
+        }
+
+        let reducer = ExactMatchReducer;
+        let summaries = reducer.reduce_epoch_aligned(&claims, 10000, None);
+        assert_eq!(summaries.len(), 2, "one Summary per cell");
+
+        let cells: Vec<_> = summaries.iter().map(|s| s.correlation_cell).collect();
+        assert!(cells.contains(&Some(CorrelationCell(1))));
+        assert!(cells.contains(&Some(CorrelationCell(2))));
+    }
+
+    #[test]
+    fn test_reduce_with_reputation_applies_discount() {
+        // 3 claims in same cell with reputation → discounting applied
+        let mut tracker = InMemoryReputationTracker::new();
+        let origins: Vec<[u8; 32]> = (0..3u8).map(|i| {
+            let mut o = [0u8; 32];
+            o[0] = i;
+            o
+        }).collect();
+        for o in &origins {
+            tracker.scores.insert(*o, Reputation::FULL);
+        }
+
+        let cell = Some(CorrelationCell(42));
+        let claims: Vec<_> = origins.iter().enumerate().map(|(i, o)| {
+            let mut src = [0u8; 32];
+            src[0] = i as u8 + 50;
+            let mut c = make_claim_with_cell(1, b"temp=20", 2000, 100, src, cell);
+            c.origin = *o;
+            c
+        }).collect();
+
+        let reducer = ExactMatchReducer;
+        let summary = reducer.reduce_with_reputation(&claims, &tracker).unwrap();
+
+        // Without discount: 3 × 2000 = 6000
+        // With discount (3000 bps): 2000 + 600 + 180 = 2780
+        assert!(
+            summary.confidence.value() < 6000,
+            "discount should reduce total: got {}",
+            summary.confidence.value()
+        );
+        assert!(
+            summary.confidence.value() > 2000,
+            "at least one full-weight claim: got {}",
+            summary.confidence.value()
+        );
+    }
+
+    #[test]
+    fn test_none_cell_backward_compat() {
+        // Claims with no cell should produce identical results to v0.2.0
+        let mut tracker = InMemoryReputationTracker::new();
+        let origins: Vec<[u8; 32]> = (0..3u8).map(|i| {
+            let mut o = [0u8; 32];
+            o[0] = i;
+            o
+        }).collect();
+        for o in &origins {
+            tracker.scores.insert(*o, Reputation::FULL);
+        }
+
+        let claims: Vec<_> = origins.iter().enumerate().map(|(i, o)| {
+            let mut src = [0u8; 32];
+            src[0] = i as u8 + 50;
+            let mut c = make_claim(1, b"temp=20", 2000, 100, src);
+            c.origin = *o;
+            c
+        }).collect();
+
+        let reducer = ExactMatchReducer;
+        let summary = reducer.reduce_with_reputation(&claims, &tracker).unwrap();
+
+        // None cells = uncorrelated = pure sum = 3 × 2000 = 6000
+        assert_eq!(
+            summary.confidence.value(),
+            6000,
+            "None cells should produce no discounting (v0.2.0 compat)"
+        );
+    }
+
+    #[test]
+    fn test_geometric_decay_bounds() {
+        // Strong discount (≤50%): reaches ~0 well before MAX_DISCOUNT_DEPTH
+        for bps in [1000u16, 3000, 5000] {
+            let f = discount_factor(MAX_DISCOUNT_DEPTH, bps);
+            assert_eq!(f, 0, "discount_bps={} at max depth should be 0, got {}", bps, f);
+        }
+        // Weak discount (70%): 0.7^30 ≈ 0.002 → still small
+        assert!(discount_factor(MAX_DISCOUNT_DEPTH, 7000) < 100);
+        // Very weak discount (90%): 0.9^30 ≈ 0.04 → still bounded
+        assert!(discount_factor(MAX_DISCOUNT_DEPTH, 9000) < 500);
+        // No discount (100%): stays at 10000 forever
+        assert_eq!(discount_factor(MAX_DISCOUNT_DEPTH, 10000), 10000);
     }
 }
