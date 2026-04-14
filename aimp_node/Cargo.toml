@@ -24,7 +24,7 @@ ring = { version = "0.17", optional = true }
 chacha20poly1305 = "0.10"
 hkdf = "0.12"
 sha2 = "0.10"
-rand = "0.8"
+rand = "0.9"
 blake3 = "1.5"
 
 
