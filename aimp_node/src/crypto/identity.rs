@@ -32,12 +32,30 @@ mod backend {
         pub fn new() -> Self {
             let mut csprng = OsRng;
             let signing_key = SigningKey::generate(&mut csprng);
-            let verifying_key = signing_key.verifying_key();
+            Self::build_from(signing_key)
+        }
 
+        /// Reconstruct an Identity from a 32-byte Ed25519 secret seed.
+        /// Useful for callers that persist the secret to disk and load
+        /// it on subsequent boots so the `node_id` (derived public key)
+        /// stays stable across restarts.
+        pub fn from_secret_bytes(secret: [u8; 32]) -> Self {
+            Self::build_from(SigningKey::from_bytes(&secret))
+        }
+
+        /// Return the 32-byte raw Ed25519 secret seed. Pair with
+        /// [`Self::from_secret_bytes`] to round-trip identity through
+        /// disk storage. Treat the returned bytes as confidential —
+        /// they are equivalent to the node's signing private key.
+        pub fn secret_bytes(&self) -> [u8; 32] {
+            self.signing_key.to_bytes()
+        }
+
+        fn build_from(signing_key: SigningKey) -> Self {
+            let verifying_key = signing_key.verifying_key();
             let secret_bytes = signing_key.to_bytes();
             let noise_static_secret = x25519_dalek::StaticSecret::from(secret_bytes);
             let noise_static_public = x25519_dalek::PublicKey::from(&noise_static_secret);
-
             Self {
                 signing_key,
                 verifying_key,
