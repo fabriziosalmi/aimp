@@ -11,6 +11,6 @@ path = "compare_automerge.rs"
 automerge = "0.7"
 yrs = "0.25"
 aimp_node = { path = "../aimp_node" }
-rand = "0.8"
+rand = "0.8.6"
 rmp-serde = "1.1"
 ring = "0.17"
