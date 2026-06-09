@@ -13,4 +13,4 @@ yrs = "0.25"
 aimp_node = { path = "../aimp_node" }
 rand = "0.8"
 rmp-serde = "1.1"
-ring = "0.17"
+ring = "0.17.12"
