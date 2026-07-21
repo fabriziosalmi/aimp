@@ -24,6 +24,14 @@ jobs:
           workspaces: aimp_node
 
       - name: Generate rustdoc
+        # The two fragments are injected into every generated page, so the
+        # published docs carry a CSP and a privacy link without anything under
+        # target/doc ever being hand-edited: regenerating simply reapplies them.
+        # Absolute paths because cargo runs rustdoc from the package directory.
+        env:
+          RUSTDOCFLAGS: >-
+            --html-in-header ${{ github.workspace }}/docs-assets/rustdoc-head.html
+            --html-after-content ${{ github.workspace }}/docs-assets/rustdoc-footer.html
         run: cargo doc --manifest-path aimp_node/Cargo.toml --no-deps
 
       - name: Add redirect index.html

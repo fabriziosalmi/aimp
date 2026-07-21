@@ -1,0 +1,16 @@
+<!--
+  Injected into the <head> of every rustdoc page via --html-in-header.
+  Everything rustdoc emits is served from this origin; 'unsafe-inline' is
+  required because rustdoc writes inline <script> and <style> blocks.
+-->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'self'; form-action 'self'">
+
+<style>
+  /* rustdoc lays <body> out as a flex ROW (sidebar + main content), and the
+     privacy footer added with --html-after-content becomes another item in
+     that row - so by default it sits *beside* the content and squeezes it.
+     Letting the row wrap makes the footer drop underneath at full width
+     instead. Checked on desktop and at 375px: content keeps its full width
+     and no horizontal scrollbar appears. */
+  body.rustdoc { flex-wrap: wrap; }
+</style>

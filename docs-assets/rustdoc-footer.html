@@ -1,0 +1,16 @@
+<!--
+  Appended to every rustdoc page via --html-after-content.
+
+  rustdoc lays the page out as a flex row (sidebar + main content), so an
+  injected block becomes another flex item and would sit *beside* the content.
+  flex-basis:100% forces it onto its own line underneath; width:100% and
+  clear:both keep it sane if the theme ever stops using flex.
+
+  The link is absolute on purpose: rustdoc pages live at many different depths
+  (aimp_node/index.html, aimp_node/config/struct.AimpConfig.html, ...), so a
+  relative path would break somewhere.
+-->
+<footer style="flex-basis:100%;width:100%;clear:both;box-sizing:border-box;margin:2.5rem 0 1rem;padding:1rem 1rem 0;border-top:1px solid rgba(128,128,128,.25);font-size:.85em;opacity:.75;">
+  <a href="https://fabriziosalmi.github.io/privacy">Privacy &amp; legal notice</a>
+  &nbsp;·&nbsp; Published by Fabrizio Salmi
+</footer>
