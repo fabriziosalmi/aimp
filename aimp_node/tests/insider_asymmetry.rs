@@ -111,7 +111,12 @@ fn a1_honest_cluster_saturates() {
     let mut last = 0;
     for n in [1usize, 2, 3, 5, 10, 100, 1000, 10_000] {
         let agg = honest_cluster(n, HONEST_CONF, HONEST_REP, DISCOUNT);
-        println!("{:>8}  {:>12}  {:>9.3}x", n, agg, agg as f64 / single as f64);
+        println!(
+            "{:>8}  {:>12}  {:>9.3}x",
+            n,
+            agg,
+            agg as f64 / single as f64
+        );
         last = agg;
     }
     assert!(
@@ -181,10 +186,17 @@ fn b1_supports_propagation_ignores_correlation() {
             .collect();
 
         let propagated = graph.propagate_trust_full(&base, 5, 5000, &claims, &tracker);
-        let target = propagated.get(&0).copied().unwrap_or(LogOdds::NEUTRAL).value() as i64;
+        let target = propagated
+            .get(&0)
+            .copied()
+            .unwrap_or(LogOdds::NEUTRAL)
+            .value() as i64;
 
         let ratio = target as f64 / reduced as f64;
-        println!("{:>8}  {:>16}  {:>18}  {:>11.2}x", n, reduced, target, ratio);
+        println!(
+            "{:>8}  {:>16}  {:>18}  {:>11.2}x",
+            n, reduced, target, ratio
+        );
         ratios.push((n, target));
     }
 
@@ -255,7 +267,10 @@ fn b1b_propagation_identical_regardless_of_cell() {
             .value() as i64
     }
 
-    println!("{:>8}  {:>14}  {:>14}  {:>14}", "N", "SAME cell", "DIFF cells", "NO cell");
+    println!(
+        "{:>8}  {:>14}  {:>14}  {:>14}",
+        "N", "SAME cell", "DIFF cells", "NO cell"
+    );
     let mut same_series = Vec::new();
     for n in [2u64, 10, 100] {
         let same = propagated_trust(n, |_| Some(42));
@@ -570,7 +585,10 @@ fn c1_flip_threshold_is_flat_in_n() {
 #[test]
 fn c2_flip_threshold_flat_at_equal_reputation() {
     println!("\n=== C2. Control: insider at EQUAL reputation (6000 bps) ===");
-    println!("{:>8}  {:>12}  {:>14}  {:>10}", "N", "honest agg", "insider conf", "~percent");
+    println!(
+        "{:>8}  {:>12}  {:>14}  {:>10}",
+        "N", "honest agg", "insider conf", "~percent"
+    );
     let rep = HONEST_REP as i64;
     let mut thresholds = Vec::new();
     for n in [1usize, 10, 100, 1000, 10_000] {
@@ -621,7 +639,10 @@ fn c3_cell_shattering_penalizes_honest_disclosure() {
 
     println!("declares cell (honest)   : {}", honest);
     println!("declares None (concealed): {}", shattered);
-    println!("advantage                : {:.1}x", shattered as f64 / honest as f64);
+    println!(
+        "advantage                : {:.1}x",
+        shattered as f64 / honest as f64
+    );
 
     assert!(
         shattered > honest * 10,
@@ -644,7 +665,10 @@ fn c4_self_declared_confidence_is_unbounded() {
     println!("to_percent()        : {}%", absurd.to_percent());
     println!("insider contribution: {}", one_insider);
     println!("10k honest sources  : {}", honest_max);
-    println!("ratio               : {:.0}x", one_insider as f64 / honest_max as f64);
+    println!(
+        "ratio               : {:.0}x",
+        one_insider as f64 / honest_max as f64
+    );
 
     assert!(one_insider > honest_max * 1000);
 }
@@ -661,7 +685,10 @@ fn c5_claim_confidence_is_clamped_on_ingestion() {
 
     let hostile = claim(1, i32::MAX, None, origin_of(1), 1);
     println!("wire value            : {}", hostile.confidence.value());
-    println!("declared_confidence() : {}", hostile.declared_confidence().value());
+    println!(
+        "declared_confidence() : {}",
+        hostile.declared_confidence().value()
+    );
     assert_eq!(
         hostile.declared_confidence().value(),
         LogOdds::MAX_DECLARED,
@@ -699,7 +726,10 @@ fn c5_claim_confidence_is_clamped_on_ingestion() {
         .value() as i64;
     println!("weighted, clamped     : {}", bounded);
     println!("weighted, unclamped   : {}", unbounded);
-    println!("reduction             : {:.0}x", unbounded as f64 / bounded as f64);
+    println!(
+        "reduction             : {:.0}x",
+        unbounded as f64 / bounded as f64
+    );
     println!("belief state          : accepted={}", state.accepted.len());
 
     assert!(
@@ -788,10 +818,7 @@ fn c6_concealment_coverage_map() {
                 w0 ^= 1u64 << (63 - k);
             }
             c.embedding = Some(QuantizedEmbedding::new([
-                w0,
-                base.0[1],
-                base.0[2],
-                base.0[3],
+                w0, base.0[1], base.0[2], base.0[3],
             ]));
             c
         })
@@ -800,10 +827,19 @@ fn c6_concealment_coverage_map() {
 
     println!("\n=== C6. Concealment coverage (N=100) ===");
     println!("{:<46} {:>10}", "shape", "aggregate");
-    println!("{:<46} {:>10}", "honest disclosure (shared cell)", v_disclosed);
+    println!(
+        "{:<46} {:>10}",
+        "honest disclosure (shared cell)", v_disclosed
+    );
     println!("{:<46} {:>10}", "conceal: 1 node, N claims", v_one_node);
-    println!("{:<46} {:>10}", "conceal: N nodes, no embedding", v_many_nodes);
-    println!("{:<46} {:>10}", "conceal: N nodes, same embedding band", v_many_embedded);
+    println!(
+        "{:<46} {:>10}",
+        "conceal: N nodes, no embedding", v_many_nodes
+    );
+    println!(
+        "{:<46} {:>10}",
+        "conceal: N nodes, same embedding band", v_many_embedded
+    );
 
     // COVERED: single-node self-amplification is now bounded like disclosure.
     assert_eq!(
@@ -821,7 +857,10 @@ fn c6_concealment_coverage_map() {
     // no embedding can no longer manufacture unbounded weight. They converge to
     // 1/(1-0.8) = 5x a single group instead of scaling with N.
     let ratio = v_many_nodes as f64 / v_disclosed as f64;
-    println!("\nN distinct origins without embeddings -> {:.1}x disclosure", ratio);
+    println!(
+        "\nN distinct origins without embeddings -> {:.1}x disclosure",
+        ratio
+    );
     assert!(
         v_many_nodes > v_disclosed,
         "unassessed independence must still be worth more than known correlation"
@@ -842,7 +881,11 @@ fn c6_concealment_coverage_map() {
         big_tracker.set_reputation(&origin_of(i), Reputation::from_bps(HONEST_REP));
     }
     let v_1000 = aggregate_claims(&bigger, &big_tracker);
-    println!("same shape at N=1000 -> {} ({:.1}x)", v_1000, v_1000 as f64 / v_disclosed as f64);
+    println!(
+        "same shape at N=1000 -> {} ({:.1}x)",
+        v_1000,
+        v_1000 as f64 / v_disclosed as f64
+    );
     assert!(
         v_1000 < v_many_nodes * 11 / 10,
         "10x more identities must not buy 10x more weight: {} -> {}",
@@ -881,7 +924,8 @@ fn c7_residual_gap_is_priced_in_delegated_identities() {
             .iter()
             .map(|c| {
                 (
-                    t.reputation(&c.origin).weight_evidence(c.declared_confidence()),
+                    t.reputation(&c.origin)
+                        .weight_evidence(c.declared_confidence()),
                     Some(CorrelationCell(c.effective_correlation_cell())),
                     c.id,
                 )
@@ -905,7 +949,9 @@ fn c7_residual_gap_is_priced_in_delegated_identities() {
                 .filter(|c| empty.reputation(&c.origin).bps() > 0)
                 .map(|c| {
                     (
-                        empty.reputation(&c.origin).weight_evidence(c.declared_confidence()),
+                        empty
+                            .reputation(&c.origin)
+                            .weight_evidence(c.declared_confidence()),
                         Some(CorrelationCell(c.effective_correlation_cell())),
                         c.id,
                     )
@@ -928,7 +974,8 @@ fn c7_residual_gap_is_priced_in_delegated_identities() {
                 .iter()
                 .map(|c| {
                     (
-                        paid.reputation(&c.origin).weight_evidence(c.declared_confidence()),
+                        paid.reputation(&c.origin)
+                            .weight_evidence(c.declared_confidence()),
                         Some(CorrelationCell(c.effective_correlation_cell())),
                         c.id,
                     )
@@ -1025,7 +1072,10 @@ fn c8_inconsistent_embeddings_do_not_buy_independence() {
     println!("\n=== C8. Inconsistent embeddings, identical content (N=100) ===");
     println!("honest disclosure          : {}", v_disclosed);
     println!("forged distinct embeddings : {}", v_attack);
-    println!("advantage                  : {:.1}x", v_attack as f64 / v_disclosed as f64);
+    println!(
+        "advantage                  : {:.1}x",
+        v_attack as f64 / v_disclosed as f64
+    );
 
     assert!(
         v_attack < v_disclosed * 5,
@@ -1123,8 +1173,13 @@ fn e1_percent_roundtrip_consistency() {
         if back != pct {
             broken.push((pct, lo.value(), back));
         }
-        println!("{:>4}% -> {:>7} -> {:>4}%{}", pct, lo.value(), back,
-            if back == pct { "" } else { "   <-- MISMATCH" });
+        println!(
+            "{:>4}% -> {:>7} -> {:>4}%{}",
+            pct,
+            lo.value(),
+            back,
+            if back == pct { "" } else { "   <-- MISMATCH" }
+        );
     }
     println!("\nmismatches: {:?}", broken);
 
@@ -1231,7 +1286,10 @@ fn f1_declared_cell_cannot_impersonate_a_cluster_key() {
     println!("after attacker joins cluster key : {}", after);
     println!("honest[0] group key              : {:#018x}", honest0_key);
     println!("attacker  group key              : {:#018x}", attacker_key);
-    println!("honest[0] still assessed         : {}", honest0_still_assessed);
+    println!(
+        "honest[0] still assessed         : {}",
+        honest0_still_assessed
+    );
 
     // The real test is not the total — the attacker's own weight can mask a
     // demotion. It is whether an attacker-chosen key can land in the derived
@@ -1259,10 +1317,7 @@ fn f1_declared_cell_cannot_impersonate_a_cluster_key() {
 #[test]
 fn f2_level2_ceiling_is_flat_in_k() {
     println!("\n=== F2. Level-2 ceiling vs number of manufactured groups ===");
-    println!(
-        "{:>10}  {:>12}  {:>14}",
-        "K groups", "aggregate", "x K=100"
-    );
+    println!("{:>10}  {:>12}  {:>14}", "K groups", "aggregate", "x K=100");
 
     println!(
         "discount_factor at max depth 30 (8000 bps) = {}",
@@ -1292,12 +1347,17 @@ fn f2_level2_ceiling_is_flat_in_k() {
                 )
             })
             .collect();
-        let agg = LogOdds::aggregate_hierarchical(&ev, DISCOUNT, UNASSESSED_DISCOUNT_BPS).value()
-            as i64;
+        let agg =
+            LogOdds::aggregate_hierarchical(&ev, DISCOUNT, UNASSESSED_DISCOUNT_BPS).value() as i64;
         if k == 100 {
             at_100 = agg;
         }
-        println!("{:>10}  {:>12}  {:>13.2}x", k, agg, agg as f64 / at_100 as f64);
+        println!(
+            "{:>10}  {:>12}  {:>13.2}x",
+            k,
+            agg,
+            agg as f64 / at_100 as f64
+        );
         results.push((k, agg));
     }
 
@@ -1380,7 +1440,10 @@ fn f3_propagation_reaches_a_fixed_point() {
         .enumerate()
         .map(|(i, c)| {
             let rep = tracker.reputation(&c.origin);
-            (i as ClaimArenaId, rep.weight_evidence(c.declared_confidence()))
+            (
+                i as ClaimArenaId,
+                rep.weight_evidence(c.declared_confidence()),
+            )
         })
         .collect();
 
@@ -1531,7 +1594,10 @@ fn f4_claim_order_does_not_change_beliefs() {
             .enumerate()
             .map(|(i, c)| {
                 let rep = tracker.reputation(&c.origin);
-                (i as ClaimArenaId, rep.weight_evidence(c.declared_confidence()))
+                (
+                    i as ClaimArenaId,
+                    rep.weight_evidence(c.declared_confidence()),
+                )
             })
             .collect();
         let prop = graph.propagate_trust_full(&base, 5, 5000, claims, tracker);

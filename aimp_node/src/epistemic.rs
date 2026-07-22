@@ -760,8 +760,10 @@ pub fn correlation_groups(claims: &[Claim], threshold_bits: u32) -> Vec<Correlat
     // assessability and falls back to unassessed grouping. Fail-closed and
     // order-independent: we flag the CONTENT KEY, never an individual claim, so
     // the outcome cannot depend on which claim was seen first.
-    let mut seen_embedding: rustc_hash::FxHashMap<([u8; 16], u32), &crate::semantic_topology::QuantizedEmbedding> =
-        rustc_hash::FxHashMap::default();
+    let mut seen_embedding: rustc_hash::FxHashMap<
+        ([u8; 16], u32),
+        &crate::semantic_topology::QuantizedEmbedding,
+    > = rustc_hash::FxHashMap::default();
     let mut inconsistent: std::collections::BTreeSet<([u8; 16], u32)> =
         std::collections::BTreeSet::new();
     for c in claims.iter() {
@@ -1455,13 +1457,14 @@ impl KnowledgeGraph {
                     .unwrap_or([0u8; 32]);
                 // A source outside the claim array cannot be assessed for
                 // correlation, and must not be credited as independent.
-                let src_group = claim_groups
-                    .get(edge.from as usize)
-                    .copied()
-                    .unwrap_or(CorrelationGroup {
-                        key: 0,
-                        assessed: false,
-                    });
+                let src_group =
+                    claim_groups
+                        .get(edge.from as usize)
+                        .copied()
+                        .unwrap_or(CorrelationGroup {
+                            key: 0,
+                            assessed: false,
+                        });
 
                 incoming.entry(edge.to).or_default().push((
                     LogOdds::new(contribution.clamp(i32::MIN as i64, i32::MAX as i64) as i32),
@@ -1479,10 +1482,7 @@ impl KnowledgeGraph {
                     UNASSESSED_DISCOUNT_BPS,
                 );
 
-                let base_val = base_trust
-                    .get(&target)
-                    .copied()
-                    .unwrap_or(LogOdds::NEUTRAL);
+                let base_val = base_trust.get(&target).copied().unwrap_or(LogOdds::NEUTRAL);
                 let current = new_trust.get(&target).copied().unwrap_or(base_val);
                 new_trust.insert(target, current.update(bonus));
             }
@@ -2211,7 +2211,10 @@ impl BeliefEngine for LogOddsBeliefEngine {
         let mut base_trust = rustc_hash::FxHashMap::default();
         for (i, claim) in claims.iter().enumerate() {
             let rep = reputations.reputation(&claim.origin);
-            base_trust.insert(i as ClaimArenaId, rep.weight_evidence(claim.declared_confidence()));
+            base_trust.insert(
+                i as ClaimArenaId,
+                rep.weight_evidence(claim.declared_confidence()),
+            );
         }
 
         // Step 2: Two-pass trust propagation (Gemini R3, R6)
@@ -4185,7 +4188,8 @@ mod tests {
                 )
             })
             .collect();
-        let agg = LogOdds::aggregate_hierarchical(&ev, DEFAULT_DISCOUNT_BPS, UNASSESSED_DISCOUNT_BPS);
+        let agg =
+            LogOdds::aggregate_hierarchical(&ev, DEFAULT_DISCOUNT_BPS, UNASSESSED_DISCOUNT_BPS);
         assert_eq!(
             agg.value(),
             6000,
@@ -4208,8 +4212,11 @@ mod tests {
                 )
             })
             .collect();
-        let agg_same =
-            LogOdds::aggregate_hierarchical(&ev_same, DEFAULT_DISCOUNT_BPS, UNASSESSED_DISCOUNT_BPS);
+        let agg_same = LogOdds::aggregate_hierarchical(
+            &ev_same,
+            DEFAULT_DISCOUNT_BPS,
+            UNASSESSED_DISCOUNT_BPS,
+        );
         assert_eq!(agg_same.value(), 2000 + 600 + 180);
     }
 
