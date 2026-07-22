@@ -5,6 +5,57 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed — BREAKING
+
+- **L3 epistemic layer: `correlation_cell: None` is no longer summed at full weight.**
+  Until now, an absent correlation cell meant "uncorrelated, therefore independent".
+  That equated *unverified* independence with *established* independence, and since
+  declaring a cell can only ever reduce a source's weight, withholding it was strictly
+  advantageous: measured, concealment paid **70.3x** over honest disclosure.
+
+  Aggregation is now two-level. Independence that can be checked — a distinct embedding
+  cluster — still sums at full weight, so genuinely independent evidence raises confidence
+  without bound. Independence that is merely asserted is grouped by the best available
+  fallback and discounted against other unassessed groups.
+
+  **Migration:** deployments that never set `correlation_cell` and carry no
+  `QuantizedEmbedding` will see aggregate confidence fall. This is intended. To recover
+  full weight for genuinely independent sources, attach embeddings; correlated sources
+  should declare a shared cell.
+
+### Added
+
+- `LogOdds::aggregate_hierarchical` — two-level correlation-aware aggregation.
+- `LogOdds::MAX_DECLARED` / `MIN_DECLARED` and `Claim::declared_confidence()` — bound
+  self-declared confidence, which was previously unvalidated on the wire.
+- `correlation_groups()` — derives correlation groups from exact Hamming clustering
+  rather than trusting the declared cell.
+- `KnowledgeGraph::propagate_trust_correlated` — correlation discounting on the trust
+  propagation path, which the v0.3.0 defense never reached.
+
+### Fixed
+
+- Correlation discounting was absent from `propagate_trust_advanced` and
+  `LogOddsBeliefEngine::compute`; 100 correlated sources amplified a conclusion to
+  30,908 where the reducer capped the same 100 at 723.
+- Self-declared `confidence` was unbounded (`i32::MAX` accepted from the wire).
+- Embeddings were not bound to claim content, allowing forged distinct embeddings to
+  manufacture independence.
+- `LogOdds::to_percent` overstated every positive confidence by one bracket
+  (`from_percent(60) = 405` but `to_percent(405)` returned 70). The negative side was
+  correctly aligned, so the error was systematic and one-directional.
+
+### Known limitations
+
+- `embedding_version` discipline is now **safety-critical**: two honest builds producing
+  different embeddings for identical content under the same version will flag each other
+  as inconsistent and both degrade to unassessed. Fail-closed, but a new failure mode.
+- K independently-delegated identities with distinct evidence sources and no embeddings
+  remain indistinguishable from K independent sources by aggregation alone. Tracked in
+  issue #10.
+
 ## [0.1.0] - 2026-03-23
 
 ### Added

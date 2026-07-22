@@ -64,8 +64,10 @@ v0.3.0 introduces **Grid-Cell Correlation Discounting**:
 - Within each cell, evidence is ranked by strength and geometrically discounted: the strongest source retains 100% weight; each subsequent source receives `discount_bps^rank / 10000^rank` (default 30%).
 - With 30% discount, N correlated sensors converge to ~1.42x the evidence of a single sensor — regardless of N. The naive approach would produce Nx amplification.
 - The CRDT associativity challenge (geometric decay is non-associative across partial merges) is solved architecturally: epoch reduction buckets by `(temporal_grid, fingerprint, correlation_cell)`, guaranteeing atomic computation on the complete set.
-- Claims with `correlation_cell: None` behave identically to v0.2.0 (zero regression).
+- ~~Claims with `correlation_cell: None` behave identically to v0.2.0 (zero regression).~~ **Superseded — see below.**
 - All arithmetic is integer-only (i32/i64, basis points). No floats. ZK-ready.
+
+> **Breaking change since v0.5.0-dev.** `correlation_cell: None` no longer means "independent, full weight". Withholding the field was strictly advantageous — measured, concealment paid **70.3x** over honest disclosure, so a rational participant never declared a cell and the discount above was trivially opted out of. Independence must now be *substantiated* rather than asserted: unverified independence is bounded, while independence backed by a distinct embedding cluster still accumulates at full weight. See the L3 section under *What's New* and [`aimp_node/tests/insider_asymmetry.rs`](aimp_node/tests/insider_asymmetry.rs).
 
 ```rust
 // 100 co-located sensors, 70% confidence each:
