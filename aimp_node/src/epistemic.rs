@@ -66,9 +66,10 @@ impl LogOdds {
 
     /// Create from percentage (0..=100) using lookup table (no floats).
     /// Returns the mathematically exact milli-log-odds for the given probability.
-    /// Note: `to_percent(from_percent(x))` may not equal `x` because `to_percent`
-    /// uses coarser quantization brackets. This is intentional: `from_percent`
-    /// preserves precision, `to_percent` provides human-readable approximation.
+    /// `to_percent(from_percent(x)) == x` for every canonical percentage EXCEPT
+    /// 99: `from_percent` maps the whole 95..=99 range onto 2944, so 99 is not
+    /// recoverable. That collapse is in `from_percent`, not in the inverse.
+    ///
     /// The log-odds value itself is always exact and used for all computation.
     pub fn from_percent(pct: u8) -> Self {
         match pct {
@@ -92,9 +93,17 @@ impl LogOdds {
     }
 
     /// Convert back to approximate percentage (0..=100) using lookup.
-    /// Bracket boundaries are chosen so that `to_percent(from_percent(x)) == x`
-    /// for all representative values. Each bracket's lower bound matches the
-    /// value produced by `from_percent` for that percentage.
+    ///
+    /// Each bracket is left-closed at exactly the value `from_percent` produces
+    /// for that percentage, so `to_percent(from_percent(x)) == x` holds for every
+    /// canonical value except 99 (see `from_percent`).
+    ///
+    /// HISTORY: the positive brackets were previously shifted by one label —
+    /// `from_percent(60) = 405` but `to_percent(405)` returned 70, and likewise
+    /// 70->80, 80->90, 90->95, 95->99. Every positive confidence was reported one
+    /// bracket MORE certain than it was, while the negative side was correctly
+    /// aligned. The error was therefore systematic and one-directional:
+    /// user-facing output always overstated positive belief, never understated it.
     pub fn to_percent(self) -> u8 {
         match self.0 {
             i32::MIN..=-6908 => 0,
@@ -105,12 +114,13 @@ impl LogOdds {
             -847..=-406 => 30,
             -405..=-101 => 40,
             -100..=99 => 50,
-            100..=404 => 60,
-            405..=846 => 70,
-            847..=1385 => 80,
-            1386..=2196 => 90,
-            2197..=2943 => 95,
-            2944..=6906 => 99,
+            100..=404 => 50,
+            405..=846 => 60,
+            847..=1385 => 70,
+            1386..=2196 => 80,
+            2197..=2943 => 90,
+            2944..=3769 => 95,
+            3770..=6906 => 99,
             6907..=i32::MAX => 100,
         }
     }
@@ -123,6 +133,29 @@ impl LogOdds {
     /// because the i64 intermediate sum never overflows.
     pub const SAFE_MAX: i32 = 1_000_000_000;
     pub const SAFE_MIN: i32 = -1_000_000_000;
+
+    /// Maximum log-odds a SINGLE SOURCE may self-declare as its own confidence.
+    ///
+    /// `SAFE_MAX` bounds *aggregate* values, which legitimately grow as evidence
+    /// accumulates. It is not a valid bound for a self-declared input: nothing in
+    /// the protocol validates `Claim::confidence`, and L2 transports claims as
+    /// opaque bytes, so a single signer could declare `i32::MAX` and outweigh the
+    /// entire rest of the mesh by ~6 orders of magnitude.
+    ///
+    /// These bounds are `from_percent(100)` and `from_percent(0)` — the extremes
+    /// the protocol's own percentage API can express, i.e. p = 0.999 / 0.001.
+    /// A source asserting more certainty than "100%" is not making a stronger
+    /// claim, it is making an invalid one.
+    pub const MAX_DECLARED: i32 = 13816;
+    pub const MIN_DECLARED: i32 = -13816;
+
+    /// Clamp a self-declared confidence into the declarable range.
+    ///
+    /// Applied to claim-sourced confidence before it becomes evidence. Aggregate
+    /// results are NOT passed through this — they may legitimately exceed it.
+    pub fn clamp_declared(self) -> LogOdds {
+        LogOdds(self.0.clamp(Self::MIN_DECLARED, Self::MAX_DECLARED))
+    }
 
     /// Bayesian aggregation: sum log-odds of independent evidence.
     /// Clamps to SAFE_MIN..SAFE_MAX (not i32 extremes) to preserve
@@ -198,6 +231,107 @@ impl LogOdds {
                 let discounted = (lo.0 as i64) * (factor as i64) / 10000;
                 total = total.saturating_add(discounted);
             }
+        }
+
+        LogOdds(total.clamp(Self::SAFE_MIN as i64, Self::SAFE_MAX as i64) as i32)
+    }
+
+    /// Two-level correlation-aware aggregation.
+    ///
+    /// [`Self::aggregate_correlated`] discounts WITHIN a correlation group but sums
+    /// freely ACROSS groups. Any strategy that manufactures K groups therefore
+    /// earns K times the per-group ceiling — which is exactly how K distinct
+    /// identities defeated the v0.3.0 discount while a single honest cluster
+    /// stayed capped.
+    ///
+    /// This function adds the missing second level, WITHOUT penalising evidence
+    /// that has substantiated its independence:
+    ///
+    /// - **Level 1** — within each group, geometric discounting at `discount_bps`
+    ///   (identical to `aggregate_correlated`).
+    /// - **Level 2** — group totals are then split by whether independence was
+    ///   assessable. `assessed` groups (their correlation was actually checked,
+    ///   e.g. embedding-backed clusters) sum with full weight. `unassessed` groups
+    ///   are ranked and geometrically discounted at `unassessed_discount_bps`.
+    ///
+    /// The Bayesian property is preserved where it matters: genuinely independent,
+    /// substantiated evidence still accumulates without bound. Only unsubstantiated
+    /// independence is bounded.
+    ///
+    /// # Determinism
+    ///
+    /// Groups are collected into a `BTreeMap` (ordered by key) and ranked by
+    /// (|total| desc, anchor `ClaimHash` asc) — a total order. Integer arithmetic
+    /// throughout.
+    pub fn aggregate_hierarchical(
+        evidence: &[(LogOdds, CorrelationGroup, ClaimHash)],
+        discount_bps: u16,
+        unassessed_discount_bps: u16,
+    ) -> LogOdds {
+        if evidence.is_empty() {
+            return LogOdds::NEUTRAL;
+        }
+
+        // ── Level 1: discount within each correlation group ──
+        // Anchor = smallest ClaimHash in the group, for order-independent ranking.
+        let mut groups: std::collections::BTreeMap<u64, GroupAccumulator> =
+            std::collections::BTreeMap::new();
+        for (lo, group, id) in evidence {
+            let entry = groups
+                .entry(group.key)
+                .or_insert_with(|| (Vec::new(), group.assessed, *id));
+            entry.0.push((*lo, *id));
+            // A group is assessed only if every member was assessable.
+            entry.1 &= group.assessed;
+            if *id < entry.2 {
+                entry.2 = *id;
+            }
+        }
+
+        let mut assessed_total: i64 = 0;
+        let mut unassessed: Vec<(i64, ClaimHash)> = Vec::new();
+
+        for (_key, (mut members, assessed, anchor)) in groups {
+            members.sort_by(|(lo_a, id_a), (lo_b, id_b)| {
+                lo_b.0.abs().cmp(&lo_a.0.abs()).then_with(|| id_a.cmp(id_b))
+            });
+            let mut group_total: i64 = 0;
+            for (rank, (lo, _)) in members.iter().enumerate() {
+                let factor = discount_factor(rank as u32, discount_bps) as i64;
+                group_total = group_total.saturating_add((lo.0 as i64) * factor / 10000);
+            }
+            if assessed {
+                assessed_total = assessed_total.saturating_add(group_total);
+            } else {
+                unassessed.push((group_total, anchor));
+            }
+        }
+
+        // ── Level 2: discount across unassessed groups ──
+        //
+        // Ranks beyond MAX_DISCOUNT_DEPTH contribute NOTHING, rather than the
+        // clamped depth-limit factor. `discount_factor` deliberately plateaus
+        // instead of decaying to zero (so that discount_bps=10000 means "no
+        // discounting, forever"), but that plateau is a leak here: at 8000 bps the
+        // factor stalls at 10/10000, so every additional manufactured group kept
+        // contributing a constant sliver and the ceiling grew linearly in K.
+        // Measured at 10k per group, K=100_000 bought 20.75x the K=100 value.
+        //
+        // It looked flat in earlier testing only because small group magnitudes
+        // made `total * 10 / 10000` truncate to zero — an artefact of the test
+        // scale, not a property of the algorithm.
+        //
+        // Groups are sorted strongest-first, so the cutoff discards the weakest
+        // evidence. Bounding unverified independence at a fixed number of
+        // contributing groups is precisely the intended semantics.
+        unassessed.sort_by(|(a, ia), (b, ib)| b.abs().cmp(&a.abs()).then_with(|| ia.cmp(ib)));
+        let mut total = assessed_total;
+        for (rank, (group_total, _)) in unassessed.iter().enumerate() {
+            if rank as u32 >= MAX_DISCOUNT_DEPTH {
+                break;
+            }
+            let factor = discount_factor(rank as u32, unassessed_discount_bps) as i64;
+            total = total.saturating_add(group_total * factor / 10000);
         }
 
         LogOdds(total.clamp(Self::SAFE_MIN as i64, Self::SAFE_MAX as i64) as i32)
@@ -375,6 +509,56 @@ const MAX_DISCOUNT_DEPTH: u32 = 30;
 /// the previous claim's weight.
 pub const DEFAULT_DISCOUNT_BPS: u16 = 3000;
 
+/// Width in bits of the LSH band used to derive a correlation group from a
+/// v0.4.0 `QuantizedEmbedding`. See [`Claim::effective_correlation_cell`].
+///
+/// Wider bands mean fewer false groupings but more false negatives: two claims
+/// within the d<=30 support threshold collide with probability ~(1-30/256)^b.
+/// At b=12 that is ~0.22 — deliberately conservative, since wrongly grouping
+/// independent evidence suppresses real signal, while a missed grouping only
+/// falls back to the exact origin bucket.
+/// Second-level discount applied ACROSS correlation groups whose independence
+/// could not be assessed. See [`LogOdds::aggregate_hierarchical`].
+///
+/// A source that supplies no basis for correlation assessment (no embedding,
+/// no declared cell) has not substantiated independence — it has merely withheld
+/// the metadata that would let anyone check. Crediting it as fully independent is
+/// the unsafe default: measured, it let K identities manufacture ~0.7x the honest
+/// ceiling each, without bound.
+///
+/// Crediting it as fully CORRELATED is equally wrong: it would cap an entire mesh
+/// at 1.43x until every deployment adopts embeddings, which is unusable.
+///
+/// 8000 bps is the conservative middle: N unassessed groups converge to
+/// 1/(1-0.8) = 5x a single source. Enough headroom that accumulating independent
+/// evidence still moves belief, tight enough that identity manufacturing stops
+/// scaling. Assessed groups are NOT subject to this — substantiated independence
+/// sums freely, preserving the Bayesian property that real independent evidence
+/// must be able to raise confidence without bound.
+pub const UNASSESSED_DISCOUNT_BPS: u16 = 8000;
+
+/// A claim's correlation group, plus whether that grouping was actually derived
+/// from evidence or merely assumed.
+///
+/// `assessed = true` means the protocol could CHECK this claim's correlation
+/// against others — currently, that it carries a `QuantizedEmbedding` placing it
+/// in an exact Hamming cluster. Such a claim has substantiated its independence
+/// from other clusters and is credited in full.
+///
+/// `assessed = false` means the claim supplied nothing to check against, so its
+/// independence is unverified rather than established. It is grouped by the best
+/// available fallback (declared cell, else origin) and, at level 2, discounted
+/// against other unassessed groups.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CorrelationGroup {
+    pub key: u64,
+    pub assessed: bool,
+}
+
+/// Level-1 accumulator in [`LogOdds::aggregate_hierarchical`]:
+/// (members, whether every member was assessable, smallest ClaimHash as anchor).
+type GroupAccumulator = (Vec<(LogOdds, ClaimHash)>, bool, ClaimHash);
+
 /// Compute the geometric discount factor for the i-th correlated claim (0-indexed).
 /// Returns value in basis points (0..=10000). Integer-only, no floats.
 ///
@@ -437,6 +621,247 @@ pub struct Claim {
     /// are compared. Allows protocol-level model upgrades without breaking
     /// existing claims. Default: 0 (unversioned / legacy).
     pub embedding_version: u32,
+}
+
+impl Claim {
+    /// The claim's confidence, clamped to the range a single source may declare.
+    ///
+    /// ALWAYS use this instead of reading `self.confidence` directly when the
+    /// value is about to become evidence. `confidence` is an attacker-controlled
+    /// wire field: it is deserialized straight from the network with no semantic
+    /// validation (`ProtocolParser::from_bytes` checks only the protocol version)
+    /// and `LogOdds::new` performs no range check.
+    ///
+    /// Without this clamp a single signer declaring `i32::MAX` contributes
+    /// ~2.0e9 weighted log-odds, against ~7e2 for an entire honest correlated
+    /// cluster — a factor of roughly 2.8 million.
+    pub fn declared_confidence(&self) -> LogOdds {
+        self.confidence.clamp_declared()
+    }
+
+    /// The correlation group this claim actually belongs to, for discounting.
+    ///
+    /// `correlation_cell` is a self-declared wire field. Declaring it can only
+    /// ever REDUCE a source's weight (it groups the source with others), so a
+    /// rational adversary never declares one: leaving it `None` made the claim a
+    /// singleton at full weight. Measured, concealment paid ~70x over honest
+    /// disclosure — the protocol rewarded lying about correlation.
+    ///
+    /// This function removes the choice. It never returns `None`, so no claim can
+    /// buy singleton status by withholding metadata. Resolution order:
+    ///
+    /// 1. **Content-derived** (`embedding`): an LSH band over the v0.4.0 SimHash.
+    ///    Bound to what the claim asserts — an adversary cannot move buckets
+    ///    without changing its own claim content. Takes precedence over the
+    ///    declared cell precisely because it is not freely chosen.
+    /// 2. **Explicit disclosure** (`correlation_cell`): honored when present and
+    ///    no embedding is available.
+    /// 3. **Origin fallback**: claims from one node share a bucket. Exact, and it
+    ///    closes single-node self-amplification.
+    ///
+    /// # Known limit
+    ///
+    /// Step 1 is a heuristic, not a guarantee. Single-band LSH has false
+    /// negatives: two claims within the d<=30 support threshold share a b-bit band
+    /// only with probability ~(1 - 30/256)^b, so semantically correlated claims
+    /// can still land in different buckets. Proper OR-amplified LSH maps one item
+    /// into several bands, which a single `u64` group key cannot express.
+    /// Step 3 is exact and is what actually bounds the single-node case.
+    ///
+    /// Residual gap: a claim carrying NO embedding may still declare a unique cell
+    /// to remain a singleton. That is an explicit, attributable assertion of
+    /// independence rather than a silent omission, but it is not prevented here.
+    /// Context-free fallback used for claims that carry no embedding.
+    ///
+    /// Prefer [`correlation_groups`], which additionally clusters embedding-bearing
+    /// claims by exact Hamming proximity. This function cannot do that, because
+    /// semantic correlation is a property of a claim SET, not of one claim.
+    pub fn effective_correlation_cell(&self) -> u64 {
+        if let Some(c) = self.correlation_cell {
+            // Domain-separated, NOT raw. `correlation_cell` is an application-chosen
+            // u64 straight off the wire, while derived cluster keys are
+            // blake3(domain || embedding_version || anchor_claim_id) — built purely
+            // from public, observable inputs. Returning the raw value let an
+            // attacker recompute an honest cluster's key, declare it as its own
+            // cell, and join that group as an unassessed member; because a group is
+            // assessed only if EVERY member is, this demoted honest substantiated
+            // evidence to the bounded ceiling. An attack on other people's
+            // evidence, not on the attacker's own weight.
+            //
+            // Hashing into a separate domain makes cross-keyspace collision require
+            // breaking BLAKE3, while honest cells still group normally: equal cells
+            // hash equal.
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(b"aimp.correlation.declared.v1");
+            hasher.update(&c.0.to_le_bytes());
+            return u64::from_le_bytes(hasher.finalize().as_bytes()[..8].try_into().unwrap());
+        }
+        Self::origin_bucket(&self.origin)
+    }
+
+    /// Bucket derived from the signing identity. Domain-separated so it can never
+    /// collide with an application-chosen `CorrelationCell`.
+    fn origin_bucket(origin: &[u8; 32]) -> u64 {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"aimp.correlation.origin.v1");
+        hasher.update(origin);
+        u64::from_le_bytes(hasher.finalize().as_bytes()[..8].try_into().unwrap())
+    }
+}
+
+/// Derive the correlation group of every claim in a set.
+///
+/// Correlation is a property of a claim SET, not of a single claim, so this
+/// cannot be a method on [`Claim`]. Resolution per claim:
+///
+/// 1. **Embedding-bearing claims** are clustered by EXACT Hamming proximity:
+///    claims within `threshold_bits` are unioned, and each connected component
+///    becomes one group. An adversary cannot leave its component without
+///    changing what it is claiming.
+/// 2. **Otherwise** the context-free fallback applies
+///    ([`Claim::effective_correlation_cell`]): declared cell, else origin bucket.
+///
+/// # Why exact clustering rather than an LSH band
+///
+/// A single b-bit LSH band groups two claims at Hamming distance d with
+/// probability ~(1 - d/256)^b. At b=12 and the v0.4.0 support threshold d=30
+/// that is **0.224** — it would miss over three quarters of genuinely correlated
+/// pairs. Exact clustering has recall 1.0 by construction, at the same O(N^2)
+/// popcount cost the auto-edge generator already pays (~50 ms for 10k claims).
+///
+/// # No cross-tier transitivity
+///
+/// Tiers are never unioned with each other. Unioning by origin AND by embedding
+/// would let one shared signal transitively collapse two entire origin groups
+/// into one, suppressing legitimate independent evidence. Clustering therefore
+/// runs only among embedding-bearing claims.
+///
+/// # Determinism
+///
+/// Group ids are derived from the MINIMUM `ClaimHash` in each component, which
+/// is independent of union order and of map iteration order. Claims with
+/// mismatched `embedding_version` are never unioned (disjoint latent spaces).
+pub fn correlation_groups(claims: &[Claim], threshold_bits: u32) -> Vec<CorrelationGroup> {
+    let n = claims.len();
+    let mut parent: Vec<usize> = (0..n).collect();
+
+    // ── Pass 0: content/embedding consistency ──
+    //
+    // The embedding is itself a self-declared, unvalidated wire field. Without
+    // this check, K identities can assert IDENTICAL content while declaring K
+    // mutually distant embeddings, manufacture K distinct clusters, be credited
+    // as substantiated independent sources, and recover full linear scaling —
+    // measured at 70.3x the honest ceiling, i.e. the entire level-2 bound
+    // defeated by one line of attacker code.
+    //
+    // Claims asserting the same normalized content under the same
+    // `embedding_version` MUST declare the same embedding. Disagreement proves at
+    // least one of them is misreporting, so the whole content group loses
+    // assessability and falls back to unassessed grouping. Fail-closed and
+    // order-independent: we flag the CONTENT KEY, never an individual claim, so
+    // the outcome cannot depend on which claim was seen first.
+    let mut seen_embedding: rustc_hash::FxHashMap<([u8; 16], u32), &crate::semantic_topology::QuantizedEmbedding> =
+        rustc_hash::FxHashMap::default();
+    let mut inconsistent: std::collections::BTreeSet<([u8; 16], u32)> =
+        std::collections::BTreeSet::new();
+    for c in claims.iter() {
+        let Some(e) = &c.embedding else { continue };
+        let key = (c.fingerprint.primary, c.embedding_version);
+        match seen_embedding.get(&key) {
+            Some(prev) if *prev != e => {
+                inconsistent.insert(key);
+            }
+            Some(_) => {}
+            None => {
+                seen_embedding.insert(key, e);
+            }
+        }
+    }
+
+    // A claim is assessable only if it carries an embedding AND its content group
+    // is internally consistent about what that embedding is.
+    let assessable: Vec<bool> = claims
+        .iter()
+        .map(|c| {
+            c.embedding.is_some()
+                && !inconsistent.contains(&(c.fingerprint.primary, c.embedding_version))
+        })
+        .collect();
+
+    fn find(parent: &mut [usize], mut x: usize) -> usize {
+        while parent[x] != x {
+            parent[x] = parent[parent[x]]; // path halving
+            x = parent[x];
+        }
+        x
+    }
+
+    for i in 0..n {
+        if !assessable[i] {
+            continue;
+        }
+        let Some(ei) = &claims[i].embedding else {
+            continue;
+        };
+        for j in (i + 1)..n {
+            if !assessable[j] {
+                continue;
+            }
+            let Some(ej) = &claims[j].embedding else {
+                continue;
+            };
+            if claims[i].embedding_version != claims[j].embedding_version {
+                continue;
+            }
+            if ei.hamming_distance(ej) <= threshold_bits {
+                let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+                if ri != rj {
+                    parent[ri] = rj;
+                }
+            }
+        }
+    }
+
+    // Order-independent component identity: the smallest ClaimHash it contains.
+    let mut min_id: rustc_hash::FxHashMap<usize, ClaimHash> = rustc_hash::FxHashMap::default();
+    for i in 0..n {
+        if !assessable[i] {
+            continue;
+        }
+        let root = find(&mut parent, i);
+        min_id
+            .entry(root)
+            .and_modify(|m| {
+                if claims[i].id < *m {
+                    *m = claims[i].id;
+                }
+            })
+            .or_insert(claims[i].id);
+    }
+
+    (0..n)
+        .map(|i| {
+            if !assessable[i] {
+                // Either no embedding at all, or the claim's content group
+                // disagrees about what its embedding is. Grouped by fallback and
+                // NOT credited as independent.
+                return CorrelationGroup {
+                    key: claims[i].effective_correlation_cell(),
+                    assessed: false,
+                };
+            }
+            let root = find(&mut parent, i);
+            let anchor = min_id[&root];
+            let mut hasher = blake3::Hasher::new();
+            hasher.update(b"aimp.correlation.cluster.v1");
+            hasher.update(&claims[i].embedding_version.to_le_bytes());
+            hasher.update(&anchor);
+            CorrelationGroup {
+                key: u64::from_le_bytes(hasher.finalize().as_bytes()[..8].try_into().unwrap()),
+                assessed: true,
+            }
+        })
+        .collect()
 }
 
 /// The semantic type of a claim.
@@ -855,6 +1280,9 @@ impl KnowledgeGraph {
     }
 
     /// Full trust propagation with temporal decay and dynamic damping.
+    ///
+    /// Uses `DEFAULT_DISCOUNT_BPS` for correlation discounting of incoming
+    /// support. See [`Self::propagate_trust_correlated`] to override it.
     #[allow(clippy::too_many_arguments)]
     pub fn propagate_trust_advanced(
         &self,
@@ -865,6 +1293,67 @@ impl KnowledgeGraph {
         reputations: &dyn ReputationTracker,
         current_tick: u64,
         half_life_ticks: u64,
+    ) -> rustc_hash::FxHashMap<ClaimArenaId, LogOdds> {
+        self.propagate_trust_correlated(
+            base_trust,
+            max_iterations,
+            damping_bps,
+            claims,
+            reputations,
+            current_tick,
+            half_life_ticks,
+            DEFAULT_DISCOUNT_BPS,
+        )
+    }
+
+    /// Trust propagation with explicit correlation discounting of incoming support.
+    ///
+    /// # Why incoming support must be discounted
+    ///
+    /// Pass 1 normalizes OUTGOING edge strength per source (Markovian flow), which
+    /// prevents a single source from being counted K times via K paths. It does not
+    /// bound what arrives AT a target: N distinct sources each emit a full-weight
+    /// contribution, so support grows linearly in N.
+    ///
+    /// That is correct for independent sources and wrong for correlated ones. Without
+    /// this discount, 100 co-located sensors supporting one conclusion amplify it ~100x,
+    /// which is precisely the hyper-confidence pathology that v0.3.0 introduced
+    /// `CorrelationCell` to eliminate — the defense existed but only ever ran inside
+    /// `SemanticReducer`, never on this path. v0.4.0 auto-edges make it reachable by
+    /// default, since SimHash proximity generates exactly this topology from correlated
+    /// sensors with no adversary involved.
+    ///
+    /// # Semantics
+    ///
+    /// Incoming Supports/DerivedFrom contributions at each target are grouped by the
+    /// SOURCE claim's `correlation_cell`, ranked by |contribution| descending with a
+    /// `ClaimHash` tiebreak, and geometrically discounted — identical semantics to
+    /// [`LogOdds::aggregate_correlated`]. Sources with `cell: None` are singletons and
+    /// keep full weight, so uncorrelated graphs are bit-for-bit unchanged.
+    ///
+    /// # Determinism
+    ///
+    /// Each target's total is computed independently and inserted once, so map
+    /// iteration order cannot affect the result. Ranking uses a total order.
+    /// All arithmetic is integer.
+    ///
+    /// # Convergence
+    ///
+    /// Discount factors are <= 10000/10000, so every contribution is scaled by a value
+    /// in [0, 1]. This can only shrink the spectral radius of the adjacency operator;
+    /// the fixed-point iteration `t_{k+1} = t_0 + A·t_k` converges at least as fast as
+    /// before.
+    #[allow(clippy::too_many_arguments)]
+    pub fn propagate_trust_correlated(
+        &self,
+        base_trust: &rustc_hash::FxHashMap<ClaimArenaId, LogOdds>,
+        max_iterations: u8,
+        damping_bps: u16,
+        claims: &[Claim],
+        reputations: &dyn ReputationTracker,
+        current_tick: u64,
+        half_life_ticks: u64,
+        discount_bps: u16,
     ) -> rustc_hash::FxHashMap<ClaimArenaId, LogOdds> {
         let cyclic_edges = self.cyclic_edge_indices();
 
@@ -887,6 +1376,11 @@ impl KnowledgeGraph {
             }
         }
 
+        // Correlation groups are a property of the claim set and do not change
+        // across fixed-point iterations — compute once, not per pass.
+        let claim_groups =
+            correlation_groups(claims, crate::semantic_topology::DEFAULT_SUPPORT_THRESHOLD);
+
         let mut trust = decayed_base.clone();
 
         // ── Pass 1: Positive propagation (Supports + DerivedFrom only) ──
@@ -896,6 +1390,14 @@ impl KnowledgeGraph {
         // so this converges in at most D steps (max depth).
         for _ in 0..max_iterations {
             let mut new_trust = decayed_base.clone(); // Reset to t_0 (with decay)
+
+            // Gather incoming contributions per target BEFORE applying them, so
+            // correlated sources can be ranked and discounted as a group.
+            // Entry: (contribution, source cell, source claim id).
+            let mut incoming: rustc_hash::FxHashMap<
+                ClaimArenaId,
+                Vec<(LogOdds, CorrelationGroup, ClaimHash)>,
+            > = rustc_hash::FxHashMap::default();
 
             for (idx, edge) in self.edges.iter().enumerate() {
                 // Skip non-support edges
@@ -946,14 +1448,43 @@ impl KnowledgeGraph {
                 let contribution =
                     (from_trust.value() as i64) * share_bps / 10000 * author_rep / 10000;
 
+                // Correlation identity of the SOURCE claim. `None` = uncorrelated.
+                let src_id = claims
+                    .get(edge.from as usize)
+                    .map(|c| c.id)
+                    .unwrap_or([0u8; 32]);
+                // A source outside the claim array cannot be assessed for
+                // correlation, and must not be credited as independent.
+                let src_group = claim_groups
+                    .get(edge.from as usize)
+                    .copied()
+                    .unwrap_or(CorrelationGroup {
+                        key: 0,
+                        assessed: false,
+                    });
+
+                incoming.entry(edge.to).or_default().push((
+                    LogOdds::new(contribution.clamp(i32::MIN as i64, i32::MAX as i64) as i32),
+                    src_group,
+                    src_id,
+                ));
+            }
+
+            // Apply gathered support through the SAME two-level aggregation the
+            // reducer uses, so the two paths cannot drift apart in semantics.
+            for (target, contribs) in incoming {
+                let bonus = LogOdds::aggregate_hierarchical(
+                    &contribs,
+                    discount_bps,
+                    UNASSESSED_DISCOUNT_BPS,
+                );
+
                 let base_val = base_trust
-                    .get(&edge.to)
+                    .get(&target)
                     .copied()
                     .unwrap_or(LogOdds::NEUTRAL);
-                let current = new_trust.get(&edge.to).copied().unwrap_or(base_val);
-                let bonus =
-                    LogOdds::new(contribution.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
-                new_trust.insert(edge.to, current.update(bonus));
+                let current = new_trust.get(&target).copied().unwrap_or(base_val);
+                new_trust.insert(target, current.update(bonus));
             }
 
             let changed = new_trust
@@ -1234,9 +1765,15 @@ impl ExactMatchReducer {
 
         // Reputation-weighted evidence with correlation cell metadata.
         let mut unique_sources: SmallVec<[ClaimHash; 16]> = SmallVec::new();
-        let mut evidence_tuples: Vec<(LogOdds, Option<CorrelationCell>, ClaimHash)> = Vec::new();
+        let mut evidence_tuples: Vec<(LogOdds, CorrelationGroup, ClaimHash)> = Vec::new();
 
-        for c in &sorted {
+        let sorted_owned: Vec<Claim> = sorted.iter().map(|c| (*c).clone()).collect();
+        let groups = correlation_groups(
+            &sorted_owned,
+            crate::semantic_topology::DEFAULT_SUPPORT_THRESHOLD,
+        );
+
+        for (gi, c) in sorted.iter().enumerate() {
             let rep = reputations.reputation(&c.origin);
             if rep.bps() == 0 {
                 continue; // Zero-reputation authors excluded entirely
@@ -1245,7 +1782,11 @@ impl ExactMatchReducer {
                 unique_sources.push(c.evidence_source);
                 // CRITICAL: Weight by reputation. A 1-bps Sybil contributes
                 // almost nothing. A 10000-bps anchor contributes full weight.
-                evidence_tuples.push((rep.weight_evidence(c.confidence), c.correlation_cell, c.id));
+                evidence_tuples.push((
+                    rep.weight_evidence(c.declared_confidence()),
+                    groups[gi],
+                    c.id,
+                ));
             }
         }
 
@@ -1254,7 +1795,11 @@ impl ExactMatchReducer {
         }
 
         // v0.3.0: Correlation-aware aggregation with geometric discounting
-        let aggregated = LogOdds::aggregate_correlated(&evidence_tuples, discount_bps);
+        let aggregated = LogOdds::aggregate_hierarchical(
+            &evidence_tuples,
+            discount_bps,
+            UNASSESSED_DISCOUNT_BPS,
+        );
         // Pre-discount values for variance/range statistics
         let evidence_logodds: Vec<LogOdds> = evidence_tuples.iter().map(|(lo, _, _)| *lo).collect();
 
@@ -1473,7 +2018,7 @@ impl SemanticReducer for ExactMatchReducer {
         for c in &sorted {
             if !unique_sources.contains(&c.evidence_source) {
                 unique_sources.push(c.evidence_source);
-                evidence_logodds.push(c.confidence);
+                evidence_logodds.push(c.declared_confidence());
             }
         }
 
@@ -1584,7 +2129,7 @@ impl IntentResolver for ReputationWeightedResolver {
             .iter()
             .max_by_key(|claim| {
                 let rep = reputations.reputation(&claim.origin);
-                let weighted = rep.weight_evidence(claim.confidence);
+                let weighted = rep.weight_evidence(claim.declared_confidence());
                 (weighted.value(), u64::MAX - claim.tick)
             })
             .unwrap();
@@ -1607,8 +2152,8 @@ impl ContradictionResolver for EvidenceWeightedContradictionResolver {
         let rep_a = reputations.reputation(&claim_a.origin);
         let rep_b = reputations.reputation(&claim_b.origin);
 
-        let weighted_a = rep_a.weight_evidence(claim_a.confidence);
-        let weighted_b = rep_b.weight_evidence(claim_b.confidence);
+        let weighted_a = rep_a.weight_evidence(claim_a.declared_confidence());
+        let weighted_b = rep_b.weight_evidence(claim_b.declared_confidence());
 
         let (supports_a, _) = graph.support_ratio(0); // Would use real arena IDs
         let (supports_b, _) = graph.support_ratio(1);
@@ -1666,7 +2211,7 @@ impl BeliefEngine for LogOddsBeliefEngine {
         let mut base_trust = rustc_hash::FxHashMap::default();
         for (i, claim) in claims.iter().enumerate() {
             let rep = reputations.reputation(&claim.origin);
-            base_trust.insert(i as ClaimArenaId, rep.weight_evidence(claim.confidence));
+            base_trust.insert(i as ClaimArenaId, rep.weight_evidence(claim.declared_confidence()));
         }
 
         // Step 2: Two-pass trust propagation (Gemini R3, R6)
@@ -1907,11 +2452,13 @@ mod tests {
         let prior = LogOdds::NEUTRAL; // 50%
         let strong_evidence = LogOdds::new(2197); // exact log-odds for 90%
         let posterior = prior.update(strong_evidence);
-        // to_percent uses coarser brackets: 2197 maps to 95% bracket.
-        // This is by design: from_percent gives exact values, to_percent
-        // gives human-readable approximations. The log-odds value (2197)
-        // is the one used in all computation.
-        assert_eq!(posterior.to_percent(), 95);
+        // 2197 IS the exact log-odds for 90% (ln(0.9/0.1)*1000), so it must read
+        // back as 90. This assertion previously expected 95 and explained the gap
+        // as "coarser brackets" — but the brackets were misaligned by one label on
+        // the positive side only, so every positive belief was reported more
+        // certain than it was. The log-odds value (2197) is what all computation
+        // uses either way.
+        assert_eq!(posterior.to_percent(), 90);
         assert_eq!(posterior.value(), 2197); // exact value preserved
     }
 
@@ -3557,8 +4104,24 @@ mod tests {
     }
 
     #[test]
-    fn test_none_cell_backward_compat() {
-        // Claims with no cell should produce identical results to v0.2.0
+    fn test_unassessed_claims_are_bounded_not_summed() {
+        // DELIBERATE BREAKING CHANGE (was: test_none_cell_backward_compat).
+        //
+        // Until v0.4.0, claims with `correlation_cell: None` were summed at full
+        // weight — "uncorrelated = independent". That equated *unverified*
+        // independence with *established* independence, and it was the single
+        // most exploitable assumption in L3: K identities each declaring no cell
+        // manufactured K times the honest ceiling, without bound, while an honest
+        // cluster that disclosed its correlation stayed capped. Concealment paid
+        // ~70x over disclosure.
+        //
+        // These claims carry no embedding, so their independence cannot be
+        // checked. They are now `assessed: false` and discounted against each
+        // other at level 2 (see `LogOdds::aggregate_hierarchical`).
+        //
+        // Claims that DO substantiate independence — distinct embedding clusters —
+        // still sum at full weight, so the Bayesian property is intact where it
+        // is earned. See `test_assessed_claims_still_sum_freely`.
         let mut tracker = InMemoryReputationTracker::new();
         let origins: Vec<[u8; 32]> = (0..3u8)
             .map(|i| {
@@ -3587,11 +4150,67 @@ mod tests {
         let summary = reducer.reduce_with_reputation(&claims, &tracker).unwrap();
 
         // None cells = uncorrelated = pure sum = 3 × 2000 = 6000
+        // 3 unassessed groups of 2000, ranked and discounted at 8000 bps:
+        //   2000*1.00 + 2000*0.80 + 2000*0.64 = 4880
         assert_eq!(
             summary.confidence.value(),
-            6000,
-            "None cells should produce no discounting (v0.2.0 compat)"
+            4880,
+            "unassessed independence must be bounded, not summed at full weight"
         );
+        // Still well above the fully-correlated ceiling: not over-punished.
+        assert!(
+            summary.confidence.value() > 2000 * 14 / 10,
+            "unassessed claims must not collapse to the correlated ceiling"
+        );
+    }
+
+    #[test]
+    fn test_assessed_claims_still_sum_freely() {
+        // The counterpart guarantee: independence that CAN be checked is credited
+        // in full. Three claims in three distinct embedding clusters are assessed
+        // and must sum without level-2 discounting.
+        use crate::semantic_topology::QuantizedEmbedding;
+
+        let ev: Vec<(LogOdds, CorrelationGroup, ClaimHash)> = (0..3u64)
+            .map(|i| {
+                let mut id = [0u8; 32];
+                id[0] = i as u8;
+                (
+                    LogOdds::new(2000),
+                    CorrelationGroup {
+                        key: 1000 + i,
+                        assessed: true,
+                    },
+                    id,
+                )
+            })
+            .collect();
+        let agg = LogOdds::aggregate_hierarchical(&ev, DEFAULT_DISCOUNT_BPS, UNASSESSED_DISCOUNT_BPS);
+        assert_eq!(
+            agg.value(),
+            6000,
+            "substantiated independent evidence must still sum at full weight"
+        );
+
+        // And three claims in ONE cluster are correlated and capped.
+        let _ = QuantizedEmbedding::ZERO;
+        let ev_same: Vec<(LogOdds, CorrelationGroup, ClaimHash)> = (0..3u64)
+            .map(|i| {
+                let mut id = [0u8; 32];
+                id[0] = i as u8;
+                (
+                    LogOdds::new(2000),
+                    CorrelationGroup {
+                        key: 7,
+                        assessed: true,
+                    },
+                    id,
+                )
+            })
+            .collect();
+        let agg_same =
+            LogOdds::aggregate_hierarchical(&ev_same, DEFAULT_DISCOUNT_BPS, UNASSESSED_DISCOUNT_BPS);
+        assert_eq!(agg_same.value(), 2000 + 600 + 180);
     }
 
     #[test]
