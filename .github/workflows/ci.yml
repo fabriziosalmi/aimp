@@ -49,5 +49,5 @@ jobs:
       - name: Install cargo-audit
         run: cargo install cargo-audit
       - name: cargo audit
-        run: cargo audit --file aimp_node/Cargo.lock
+        run: cargo audit --file Cargo.lock
         continue-on-error: true

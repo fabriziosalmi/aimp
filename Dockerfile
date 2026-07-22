@@ -4,6 +4,9 @@ FROM rust:1.85-bookworm AS builder
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY aimp_node/ aimp_node/
+# Workspace member: cargo refuses to load the workspace when a member manifest is
+# missing, even though only aimp_node is built. Source only (~100K), never compiled.
+COPY benchmarks/ benchmarks/
 
 RUN cargo build --release --manifest-path aimp_node/Cargo.toml
 
