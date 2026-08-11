@@ -1,10 +1,18 @@
+// `AimpConfig` is the file/env loader used by the node binary; it is the only
+// thing in this module that needs the `config` crate (which drags a parser per
+// supported format — 38 crates). Library consumers embedding the protocol build
+// their configuration themselves and only need the constants below, so the
+// loader lives behind `cli` while the constants stay unconditional.
+#[cfg(feature = "cli")]
 use config::{Config, ConfigError, Environment, File};
+#[cfg(feature = "cli")]
 use serde::Deserialize;
 
 /// Dynamic configuration for an AIMP mesh node.
 ///
 /// Loaded from (in priority order): CLI arguments > environment variables (`AIMP_` prefix) >
 /// `aimp.toml` file > hardcoded defaults.
+#[cfg(feature = "cli")]
 #[derive(Debug, Deserialize, Clone)]
 pub struct AimpConfig {
     pub port: u16,
@@ -20,6 +28,7 @@ pub struct AimpConfig {
     pub peer_rate_burst: u64,
 }
 
+#[cfg(feature = "cli")]
 impl AimpConfig {
     pub fn new() -> Result<Self, ConfigError> {
         let s = Config::builder()
