@@ -25,8 +25,19 @@ jobs:
         run: cargo fmt --manifest-path aimp_node/Cargo.toml -- --check
       - name: cargo clippy
         run: cargo clippy --manifest-path aimp_node/Cargo.toml -- -D warnings
+      # --all-targets so benches and tests are COMPILED, not just the lib+bin.
+      # Without it `benches/epistemic.rs` silently stopped compiling when
+      # `Claim` gained three fields, and nothing caught it: `cargo test` does
+      # not build bench targets. Compile-only here on purpose — clippy stays
+      # narrow because the bench/test sources carry ~34 pre-existing lint nits
+      # (doc-comment placement, div_ceil, &mut Vec) that are a separate cleanup.
       - name: cargo check
-        run: cargo check --manifest-path aimp_node/Cargo.toml
+        run: cargo check --manifest-path aimp_node/Cargo.toml --all-targets
+      # aimp_node is consumed as a LIBRARY with default-features = false (zion
+      # does this to skip the node application). That configuration has its own
+      # cfg paths, so it needs its own gate or it breaks only downstream.
+      - name: cargo check (library, no default features)
+        run: cargo check --manifest-path aimp_node/Cargo.toml --no-default-features --lib
 
   test:
     name: Test

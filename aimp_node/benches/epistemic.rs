@@ -35,6 +35,15 @@ fn make_claim(sensor: u8, data: &[u8], logodds: i32, tick: u64, source: [u8; 32]
         confidence: LogOdds::new(logodds),
         evidence_source: source,
         tick,
+        // v0.3.0/v0.4.0 additions, set to their documented backward-compatible
+        // defaults so these benchmarks keep measuring what they measured before
+        // the fields existed: no correlation discounting, no embeddings, no
+        // auto-generated edges. Same values the in-crate tests use. Benchmarking
+        // the new paths deserves its own group rather than silently changing the
+        // baseline the paper's numbers came from.
+        correlation_cell: None,
+        embedding: None,
+        embedding_version: 0,
     }
 }
 
