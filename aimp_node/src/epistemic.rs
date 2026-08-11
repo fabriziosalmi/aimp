@@ -143,7 +143,8 @@ impl LogOdds {
     /// entire rest of the mesh by ~6 orders of magnitude.
     ///
     /// These bounds are `from_percent(100)` and `from_percent(0)` — the extremes
-    /// the protocol's own percentage API can express, i.e. p = 0.999 / 0.001.
+    /// the protocol's own percentage API can express, i.e. p = 0.999999 /
+    /// 0.000001 (ln(999999) * 1000 = 13815.5, rounded to 13816).
     /// A source asserting more certainty than "100%" is not making a stronger
     /// claim, it is making an invalid one.
     pub const MAX_DECLARED: i32 = 13816;

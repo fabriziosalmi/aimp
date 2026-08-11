@@ -1620,7 +1620,8 @@ fn f4_claim_order_does_not_change_beliefs() {
     println!("aggregate (canonical order): {}", canonical.1);
 
     // Several deterministic permutations, no RNG.
-    let permutations: Vec<(&str, Box<dyn Fn(Vec<Claim>) -> Vec<Claim>>)> = vec![
+    type Permutation = (&'static str, Box<dyn Fn(Vec<Claim>) -> Vec<Claim>>);
+    let permutations: Vec<Permutation> = vec![
         (
             "reversed",
             Box::new(|mut v: Vec<Claim>| {
@@ -1704,6 +1705,8 @@ fn f5_clustering_cost_is_within_budget() {
     println!("{:>10}  {:>12}  {:>16}", "N", "elapsed", "per claim");
 
     let mut last_ms = 0.0f64;
+    let mut per_claim_at_5k = 0.0f64;
+    let mut per_claim_at_10k = 0.0f64;
     for n in [100u64, 1_000, 5_000, 10_000] {
         let claims: Vec<Claim> = (0..n)
             .map(|i| {
@@ -1732,20 +1735,46 @@ fn f5_clustering_cost_is_within_budget() {
 
         let ms = elapsed.as_secs_f64() * 1000.0;
         last_ms = ms;
-        println!(
-            "{:>10}  {:>10.2}ms  {:>14.1}ns",
-            n,
-            ms,
-            elapsed.as_nanos() as f64 / n as f64
-        );
+        let per_claim_ns = elapsed.as_nanos() as f64 / n as f64;
+        if n == 5_000 {
+            per_claim_at_5k = per_claim_ns;
+        }
+        if n == 10_000 {
+            per_claim_at_10k = per_claim_ns;
+        }
+        println!("{:>10}  {:>10.2}ms  {:>14.1}ns", n, ms, per_claim_ns);
     }
 
-    // Generous ceiling: debug builds are ~10-50x slower than release, and CI
-    // machines vary. This is a smoke alarm for accidental O(N^3), not a
-    // performance gate.
+    // Absolute wall-clock cannot express this budget. The same N=10k measures
+    // ~135 ms in release and ~9.2 s in debug — which is how CI runs it — and
+    // runner speed varies several-fold on top of that. A ceiling loose enough
+    // to survive debug on a slow runner is too loose to detect anything: an
+    // accidental O(N^3) would land around 18-20 s in debug, comfortably under
+    // the 60 s this used to allow. The alarm would not have sounded for the
+    // fire it was installed to detect.
+    //
+    // What IS invariant across build mode and machine is the SHAPE of the
+    // curve. For O(N^2) the per-claim cost doubles when N doubles; O(N^3)
+    // quadruples it. Measured here: 2.00x in debug, 2.07x in release.
+    let growth = per_claim_at_10k / per_claim_at_5k;
+    println!(
+        "  per-claim growth 5k -> 10k: {:.2}x  (O(N^2) predicts ~2x)",
+        growth
+    );
+    assert!(
+        per_claim_at_5k > 0.0 && growth < 3.0,
+        "clustering complexity regressed: per-claim cost grew {:.2}x when N doubled \
+         (5000 -> 10000). O(N^2) predicts ~2x, O(N^3) ~4x. \
+         Absolute timings this run: {:.1}ns/claim at 5k, {:.1}ns/claim at 10k",
+        growth,
+        per_claim_at_5k,
+        per_claim_at_10k
+    );
+
+    // Retained only as a hang detector, not as a budget — see above.
     assert!(
         last_ms < 60_000.0,
-        "clustering at N=10k took {:.0}ms — far outside the O(N^2) budget",
+        "clustering at N=10k took {:.0}ms — the run is stuck, not merely slow",
         last_ms
     );
 }
