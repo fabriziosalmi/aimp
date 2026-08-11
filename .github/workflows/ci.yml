@@ -23,8 +23,11 @@ jobs:
           workspaces: aimp_node
       - name: cargo fmt
         run: cargo fmt --manifest-path aimp_node/Cargo.toml -- --check
+      # --all-targets: examples, benches and tests are linted too. They were
+      # exempt until now, which is how a `///!` typo survived in eight file
+      # headers and two benchmarks kept accumulating metrics they never printed.
       - name: cargo clippy
-        run: cargo clippy --manifest-path aimp_node/Cargo.toml -- -D warnings
+        run: cargo clippy --manifest-path aimp_node/Cargo.toml --all-targets -- -D warnings
       # --all-targets so benches and tests are COMPILED, not just the lib+bin.
       # Without it `benches/epistemic.rs` silently stopped compiling when
       # `Claim` gained three fields, and nothing caught it: `cargo test` does

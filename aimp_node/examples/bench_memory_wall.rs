@@ -1,12 +1,12 @@
-///! Memory Wall Benchmark — L3 Cache Exhaustion Detection
-///!
-///! Pumps millions of mutations into a single engine with GC disabled,
-///! tracking throughput every 500K ops. When the working set exceeds
-///! L3 cache (~32MB on Apple Silicon), throughput drops as every
-///! FxHashMap/arena lookup becomes a cache miss (~50-100ns penalty).
-///!
-///! Run: RUSTFLAGS="-C target-cpu=native" cargo run --release \
-///!        --features fast-crypto --example bench_memory_wall
+//! Memory Wall Benchmark — L3 Cache Exhaustion Detection
+//!
+//! Pumps millions of mutations into a single engine with GC disabled,
+//! tracking throughput every 500K ops. When the working set exceeds
+//! L3 cache (~32MB on Apple Silicon), throughput drops as every
+//! FxHashMap/arena lookup becomes a cache miss (~50-100ns penalty).
+//!
+//! Run: RUSTFLAGS="-C target-cpu=native" cargo run --release \
+//!        --features fast-crypto --example bench_memory_wall
 use aimp_node::crdt::merkle_dag::MerkleCrdtEngine;
 use aimp_node::crypto::{Identity, SecurityFirewall};
 use std::collections::BTreeMap;
@@ -50,7 +50,7 @@ fn main() {
             // Compute batch root
             let mut level = batch_hashes.clone();
             while level.len() > 1 {
-                let mut next = Vec::with_capacity((level.len() + 1) / 2);
+                let mut next = Vec::with_capacity(level.len().div_ceil(2));
                 for pair in level.chunks(2) {
                     if pair.len() == 2 {
                         let mut h = blake3::Hasher::new();

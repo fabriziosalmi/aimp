@@ -1,13 +1,12 @@
-///! Batch Signing — Multi-Node Scalability Benchmark
-///!
-///! Tests batch signing with 3, 5, 10, and 20 nodes to verify that
-///! throughput and convergence scale correctly under batch signing mode.
-///!
-///! Run: RUSTFLAGS="-C target-cpu=native" cargo run --release \
-///!        --features fast-crypto --example bench_batch_multinode
+//! Batch Signing — Multi-Node Scalability Benchmark
+//!
+//! Tests batch signing with 3, 5, 10, and 20 nodes to verify that
+//! throughput and convergence scale correctly under batch signing mode.
+//!
+//! Run: RUSTFLAGS="-C target-cpu=native" cargo run --release \
+//!        --features fast-crypto --example bench_batch_multinode
 use aimp_node::crdt::merkle_dag::{DagNode, MerkleCrdtEngine};
 use aimp_node::crypto::{Identity, SecurityFirewall};
-use smallvec::SmallVec;
 use std::collections::BTreeMap;
 use std::time::Instant;
 
@@ -21,7 +20,7 @@ fn compute_batch_root(hashes: &[[u8; 32]]) -> [u8; 32] {
 
     let mut level: Vec<[u8; 32]> = hashes.to_vec();
     while level.len() > 1 {
-        let mut next = Vec::with_capacity((level.len() + 1) / 2);
+        let mut next = Vec::with_capacity(level.len().div_ceil(2));
         for pair in level.chunks(2) {
             if pair.len() == 2 {
                 let mut h = blake3::Hasher::new();
@@ -143,11 +142,16 @@ fn run_scenario(num_nodes: usize, mutations_per_node: usize, batch_size: usize) 
             let converged = distinct == 1;
 
             println!(
-                "  {:>2} nodes x {:>4} mut, batch={:<3} | {:>8.0} mut/s | sync {:.3}ms ({} rounds) | conv={} | DAG={}",
+                // `xfer` (nodes pushed across all sync rounds) was accumulated
+                // but never reported — in a batching benchmark it is the
+                // bandwidth side of the trade the batch size is tuning, so it
+                // belongs next to the latency.
+                "  {:>2} nodes x {:>4} mut, batch={:<3} | {:>8.0} mut/s | sync {:.3}ms ({} rounds, {} xfer) | conv={} | DAG={}",
                 num_nodes, mutations_per_node, batch_size,
                 mutation_rate,
                 sync_elapsed.as_secs_f64() * 1000.0,
                 rounds,
+                total_transferred,
                 if converged { "YES" } else { "NO " },
                 engines[0].arena.len()
             );

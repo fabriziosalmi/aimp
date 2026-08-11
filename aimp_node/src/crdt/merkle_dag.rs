@@ -301,7 +301,7 @@ mod tests {
             let mut engine_a = MerkleCrdtEngine::default();
             let mut engine_b = MerkleCrdtEngine::default();
 
-            let mut vclocks = vec![BTreeMap::new(), BTreeMap::new()];
+            let mut vclocks = [BTreeMap::new(), BTreeMap::new()];
             vclocks[0].insert("a".to_string(), 1);
             vclocks[1].insert("b".to_string(), 1);
 

@@ -193,13 +193,25 @@ fn exhaustive_trust_bounded() {
         let propagated = graph.propagate_trust_full(&bt, 20, 5000, &claims, &tracker);
 
         for (&node, &trust) in &propagated {
-            assert!(
-                trust.value() >= i32::MIN && trust.value() <= i32::MAX,
-                "TrustBounded violated: node {} has trust {} (init={})",
-                node,
-                trust.value(),
-                init_val
-            );
+            // KNOWN-VACUOUS — see issue #16. `trust.value()` is an i32, so both
+            // comparisons hold by construction and this assertion cannot fail.
+            // Tightening it to the range the arithmetic actually maintains
+            // (LogOdds::SAFE_MIN/SAFE_MAX, ±1e9) makes it fail immediately on
+            // init=i32::MIN: a node with no incoming contribution keeps its base
+            // trust without passing through `update()`, so it is never clamped.
+            // Fixing that is a design decision about LogOdds::MIN/MAX vs SAFE_*,
+            // tracked in #16 — left as-is here rather than silently picking a
+            // semantic inside a lint cleanup.
+            #[allow(clippy::absurd_extreme_comparisons)]
+            {
+                assert!(
+                    trust.value() >= i32::MIN && trust.value() <= i32::MAX,
+                    "TrustBounded violated: node {} has trust {} (init={})",
+                    node,
+                    trust.value(),
+                    init_val
+                );
+            }
         }
         configs_tested += 1;
     }

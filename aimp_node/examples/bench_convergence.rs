@@ -1,12 +1,12 @@
-///! System-level convergence benchmark for AIMP
-///!
-///! Simulates N nodes communicating in-process via channels.
-///! Measures:
-///!   1. Mutation throughput (end-to-end, N nodes)
-///!   2. Convergence time after asymmetric mutations
-///!   3. Partition/merge convergence time
-///!
-///! Run: cargo run --release --manifest-path aimp_node/Cargo.toml --example bench_convergence
+//! System-level convergence benchmark for AIMP
+//!
+//! Simulates N nodes communicating in-process via channels.
+//! Measures:
+//!   1. Mutation throughput (end-to-end, N nodes)
+//!   2. Convergence time after asymmetric mutations
+//!   3. Partition/merge convergence time
+//!
+//! Run: cargo run --release --manifest-path aimp_node/Cargo.toml --example bench_convergence
 use aimp_node::crdt::merkle_dag::{DagNode, MerkleCrdtEngine};
 use aimp_node::crypto::{Identity, SecurityFirewall};
 use aimp_node::protocol::{AimpData, OpCode};
@@ -39,6 +39,11 @@ fn create_mutation(
 
 /// Full-state transfer: copy ALL nodes from src that dst doesn't have.
 /// This simulates anti-entropy sync (like real CRDT replication).
+// Unused: the convergence scenarios below drive sync inline rather than
+// through this helper. Kept rather than deleted because it is the only
+// full-state reference implementation in this file, and a future scenario
+// comparing full vs delta sync would want it.
+#[allow(dead_code)]
 fn full_sync(src: &MerkleCrdtEngine, dst: &mut MerkleCrdtEngine) -> usize {
     let mut added = 0;
     let all_nodes: Vec<([u8; 32], DagNode)> = src

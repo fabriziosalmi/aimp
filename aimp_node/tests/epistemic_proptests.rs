@@ -16,6 +16,12 @@ fn arb_logodds() -> impl Strategy<Value = LogOdds> {
     (-10000i32..=10000).prop_map(LogOdds::new)
 }
 
+// UNUSED — worth knowing: this is the only `Strategy<Value = Claim>` in a
+// file with 14 property tests, and nothing consumes it. Either a property
+// over arbitrary claims was intended and never wired up, or it was dropped
+// in a refactor. Kept so the gap stays visible instead of being deleted
+// along with the evidence.
+#[allow(dead_code)]
 fn arb_claim() -> impl Strategy<Value = Claim> {
     (
         0..10u8,
@@ -163,18 +169,15 @@ proptest! {
         doubled.extend(claims.iter().cloned());
         let twice = reducer.reduce(&doubled);
 
-        match (once, twice) {
-            (Some(o), Some(t)) => {
-                // Idempotency: reduce(A ++ A) should produce same unique_sources as reduce(A)
-                if let (
-                    ClaimKind::Summary { unique_sources: u1, .. },
-                    ClaimKind::Summary { unique_sources: u2, .. },
-                ) = (&o.kind, &t.kind)
-                {
-                    prop_assert_eq!(u1, u2, "idempotency: unique_sources must not double");
-                }
+        if let (Some(o), Some(t)) = (once, twice) {
+            // Idempotency: reduce(A ++ A) should produce same unique_sources as reduce(A)
+            if let (
+                ClaimKind::Summary { unique_sources: u1, .. },
+                ClaimKind::Summary { unique_sources: u2, .. },
+            ) = (&o.kind, &t.kind)
+            {
+                prop_assert_eq!(u1, u2, "idempotency: unique_sources must not double");
             }
-            _ => {}
         }
     }
 }

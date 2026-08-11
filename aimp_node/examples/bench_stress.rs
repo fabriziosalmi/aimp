@@ -1,10 +1,10 @@
-///! AIMP Stress Test — Find the breaking point
-///!
-///! Scales nodes (3→100), mutations (100→10000), batch sizes (1→500),
-///! and DAG depth to find where performance degrades and convergence breaks.
-///!
-///! Run: RUSTFLAGS="-C target-cpu=native" cargo run --release \
-///!        --features fast-crypto --example bench_stress
+//! AIMP Stress Test — Find the breaking point
+//!
+//! Scales nodes (3→100), mutations (100→10000), batch sizes (1→500),
+//! and DAG depth to find where performance degrades and convergence breaks.
+//!
+//! Run: RUSTFLAGS="-C target-cpu=native" cargo run --release \
+//!        --features fast-crypto --example bench_stress
 use aimp_node::crdt::merkle_dag::{DagNode, MerkleCrdtEngine};
 use aimp_node::crypto::{Identity, SecurityFirewall};
 use std::collections::BTreeMap;
@@ -19,7 +19,7 @@ fn compute_batch_root(hashes: &[[u8; 32]]) -> [u8; 32] {
     }
     let mut level: Vec<[u8; 32]> = hashes.to_vec();
     while level.len() > 1 {
-        let mut next = Vec::with_capacity((level.len() + 1) / 2);
+        let mut next = Vec::with_capacity(level.len().div_ceil(2));
         for pair in level.chunks(2) {
             if pair.len() == 2 {
                 let mut h = blake3::Hasher::new();

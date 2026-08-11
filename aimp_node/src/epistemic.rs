@@ -2600,7 +2600,7 @@ mod tests {
     fn test_sybil_attack_blocked() {
         // Exploit: attacker creates 100 fresh Ed25519 keys, each gets default rep
         // All support a false claim → massive fake consensus
-        let mut tracker = InMemoryReputationTracker::new();
+        let tracker = InMemoryReputationTracker::new();
 
         // 100 unknown nodes (no delegation)
         let mut total_weight = 0u32;
@@ -3341,7 +3341,7 @@ mod tests {
         let correlated = LogOdds::aggregate_correlated(&evidence, 3000);
 
         // Independent sum would be 5000
-        let independent = LogOdds::aggregate(&vec![LogOdds::new(1000); 5]);
+        let independent = LogOdds::aggregate(&[LogOdds::new(1000); 5]);
         assert_eq!(independent.value(), 5000);
 
         // Correlated must be less (1000 + 300 + 90 + 27 + 8 = 1425)

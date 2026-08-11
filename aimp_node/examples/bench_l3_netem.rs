@@ -188,6 +188,10 @@ fn make_l3_claim(i: u32, origin: [u8; 32], confidence: i32) -> Claim {
 
 /// Simulate L3 gossip: replicate claims and edges from src to dst.
 /// Returns true if dst changed.
+// Unused: superseded by `l3_sync_round` below, which drives all three
+// scenarios. Kept as the single-pair reference the round-based version is
+// built from.
+#[allow(dead_code)]
 fn l3_sync(src: &L3Node, dst: &mut L3Node) -> bool {
     let before = dst.claims.len() + dst.graph.edges().len();
 
@@ -214,7 +218,6 @@ fn l3_sync(src: &L3Node, dst: &mut L3Node) -> bool {
 }
 
 fn l3_sync_round(nodes: &mut [L3Node], loss_pct: f64, rng: &mut impl Rng) -> bool {
-    let n = nodes.len();
     let mut changed = false;
 
     // Collect all data first to avoid borrow issues
@@ -223,17 +226,17 @@ fn l3_sync_round(nodes: &mut [L3Node], loss_pct: f64, rng: &mut impl Rng) -> boo
         .map(|node| (node.claims.clone(), node.graph.edges().to_vec()))
         .collect();
 
-    for i in 0..n {
-        for j in 0..n {
+    // Iterator form, but the pair order and therefore the `rng` call sequence
+    // are identical to the previous index loops — a benchmark whose results are
+    // compared across runs cannot afford a reshuffle here.
+    for (i, (src_claims, src_edges)) in snapshots.iter().enumerate() {
+        for (j, dst) in nodes.iter_mut().enumerate() {
             if i == j {
                 continue;
             }
             if rng.gen::<f64>() < loss_pct / 100.0 {
                 continue;
             }
-
-            let (ref src_claims, ref src_edges) = snapshots[i];
-            let dst = &mut nodes[j];
 
             for claim in src_claims {
                 if !dst.claims.iter().any(|c| c.id == claim.id) {
@@ -504,8 +507,8 @@ fn main() {
                 100 + round,
             );
             let claim_b = make_l3_claim(200 + round as u32, identities[2].node_id(), -2000);
-            for j in 2..NUM_NODES {
-                l3_nodes[j].add_claim(claim_b.clone());
+            for node in l3_nodes.iter_mut().take(NUM_NODES).skip(2) {
+                node.add_claim(claim_b.clone());
             }
 
             // Some contradictions between groups (will be visible after merge)

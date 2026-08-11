@@ -1,20 +1,20 @@
-///! Batch Signing Benchmark — Amortized Ed25519 via Merkle Batch Root
-///!
-///! Instead of signing each mutation individually (7.1 µs per mutation),
-///! accumulate N mutations in a batch, compute their Merkle root, and
-///! sign only the root. Each mutation is verifiable via Merkle proof
-///! against the signed root — identical security model to blockchain blocks.
-///!
-///! Security model:
-///!   - Individual signing: each mutation independently verifiable
-///!   - Batch signing: batch root signed, individual mutations verified
-///!     via Merkle inclusion proof against the signed root
-///!   - Integrity guarantee is identical (Merkle tree collision resistance)
-///!   - Trade-off: mutations are only fully verifiable after batch close
-///!
-///! Run: cargo run --release --example bench_batch_signing
-///!      RUSTFLAGS="-C target-cpu=native" cargo run --release \
-///!        --features fast-crypto --example bench_batch_signing
+//! Batch Signing Benchmark — Amortized Ed25519 via Merkle Batch Root
+//!
+//! Instead of signing each mutation individually (7.1 µs per mutation),
+//! accumulate N mutations in a batch, compute their Merkle root, and
+//! sign only the root. Each mutation is verifiable via Merkle proof
+//! against the signed root — identical security model to blockchain blocks.
+//!
+//! Security model:
+//!   - Individual signing: each mutation independently verifiable
+//!   - Batch signing: batch root signed, individual mutations verified
+//!     via Merkle inclusion proof against the signed root
+//!   - Integrity guarantee is identical (Merkle tree collision resistance)
+//!   - Trade-off: mutations are only fully verifiable after batch close
+//!
+//! Run: cargo run --release --example bench_batch_signing
+//!      RUSTFLAGS="-C target-cpu=native" cargo run --release \
+//!        --features fast-crypto --example bench_batch_signing
 use aimp_node::crdt::merkle_dag::MerkleCrdtEngine;
 use aimp_node::crypto::{Identity, SecurityFirewall};
 use aimp_node::protocol::{AimpData, OpCode};
@@ -72,7 +72,7 @@ impl BatchSigner {
         let mut level: Vec<[u8; 32]> = hashes.to_vec();
 
         while level.len() > 1 {
-            let mut next_level = Vec::with_capacity((level.len() + 1) / 2);
+            let mut next_level = Vec::with_capacity(level.len().div_ceil(2));
             for pair in level.chunks(2) {
                 if pair.len() == 2 {
                     let mut hasher = blake3::Hasher::new();
@@ -102,13 +102,17 @@ impl BatchSigner {
         let mut idx = index;
 
         while level.len() > 1 {
-            let sibling_idx = if idx % 2 == 0 { idx + 1 } else { idx - 1 };
+            let sibling_idx = if idx.is_multiple_of(2) {
+                idx + 1
+            } else {
+                idx - 1
+            };
             if sibling_idx < level.len() {
                 // true = sibling is on the right
-                proof.push((level[sibling_idx], idx % 2 == 0));
+                proof.push((level[sibling_idx], idx.is_multiple_of(2)));
             }
 
-            let mut next_level = Vec::with_capacity((level.len() + 1) / 2);
+            let mut next_level = Vec::with_capacity(level.len().div_ceil(2));
             for pair in level.chunks(2) {
                 if pair.len() == 2 {
                     let mut hasher = blake3::Hasher::new();
@@ -205,10 +209,9 @@ fn main() {
             let data_hash = SecurityFirewall::hash(data.as_bytes());
 
             // Accumulate mutation hash; sign only when batch is full
-            let sig = match batcher.add_mutation(data_hash, &identity) {
-                Some(batch_sig) => batch_sig,
-                None => [0u8; 64], // Placeholder until batch closes
-            };
+            let sig = batcher
+                .add_mutation(data_hash, &identity)
+                .unwrap_or([0u8; 64]);
 
             let mut vc = BTreeMap::new();
             vc.insert("n0".to_string(), i as u64);
