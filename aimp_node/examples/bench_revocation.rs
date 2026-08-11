@@ -24,7 +24,6 @@ fn make_fingerprint(data: &[u8]) -> SemanticFingerprint {
 /// Simulates an N-node mesh where credential claims propagate via L3.
 /// Each "node" maintains its own BeliefEngine + graph.
 struct MeshSimulator {
-    n: usize,
     claims: Vec<Claim>,
     graphs: Vec<KnowledgeGraph>,
     trackers: Vec<InMemoryReputationTracker>,
@@ -47,7 +46,6 @@ impl MeshSimulator {
         }
 
         Self {
-            n,
             claims: Vec::new(),
             graphs: (0..n).map(|_| KnowledgeGraph::new()).collect(),
             trackers,
@@ -184,7 +182,7 @@ fn main() {
         let issuer = [1u8; 32];
 
         // Grant
-        let start = Instant::now();
+        let _start = Instant::now();
         let mut total_grant = std::time::Duration::ZERO;
         let mut total_revoke = std::time::Duration::ZERO;
         let mut accepted = false;

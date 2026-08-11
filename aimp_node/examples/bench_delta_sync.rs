@@ -1,12 +1,12 @@
-///! Delta-Sync Benchmark — O(Δ) vs O(D) anti-entropy
-///!
-///! Compares three sync strategies:
-///!   1. Full-state: copy entire arena (current stress test) — O(N²×D)
-///!   2. Delta-vdiff: exchange only missing nodes via get_vdiff — O(N²×Δ)
-///!   3. Gossip fan-out: delta-vdiff with K random peers/round — O(N×K×Δ)
-///!
-///! Run: RUSTFLAGS="-C target-cpu=native" cargo run --release \
-///!        --features fast-crypto --example bench_delta_sync
+//! Delta-Sync Benchmark — O(Δ) vs O(D) anti-entropy
+//!
+//! Compares three sync strategies:
+//!   1. Full-state: copy entire arena (current stress test) — O(N²×D)
+//!   2. Delta-vdiff: exchange only missing nodes via get_vdiff — O(N²×Δ)
+//!   3. Gossip fan-out: delta-vdiff with K random peers/round — O(N×K×Δ)
+//!
+//! Run: RUSTFLAGS="-C target-cpu=native" cargo run --release \
+//!        --features fast-crypto --example bench_delta_sync
 use aimp_node::crdt::merkle_dag::{DagNode, MerkleCrdtEngine};
 use aimp_node::crypto::{Identity, SecurityFirewall};
 use rand::prelude::*;
@@ -22,7 +22,7 @@ fn compute_batch_root(hashes: &[[u8; 32]]) -> [u8; 32] {
     }
     let mut level: Vec<[u8; 32]> = hashes.to_vec();
     while level.len() > 1 {
-        let mut next = Vec::with_capacity((level.len() + 1) / 2);
+        let mut next = Vec::with_capacity(level.len().div_ceil(2));
         for pair in level.chunks(2) {
             if pair.len() == 2 {
                 let mut h = blake3::Hasher::new();
@@ -93,7 +93,7 @@ fn check_convergence(engines: &mut [MerkleCrdtEngine]) -> (bool, usize) {
 }
 
 /// Strategy 1: Full-state transfer (O(N²×D))
-fn sync_full_state(engines: &mut Vec<MerkleCrdtEngine>) -> (f64, usize) {
+fn sync_full_state(engines: &mut [MerkleCrdtEngine]) -> (f64, usize) {
     let n = engines.len();
     let start = Instant::now();
     let mut rounds = 0;
@@ -134,7 +134,7 @@ fn sync_full_state(engines: &mut Vec<MerkleCrdtEngine>) -> (f64, usize) {
 }
 
 /// Strategy 2: Delta-vdiff (O(N²×Δ))
-fn sync_delta_vdiff(engines: &mut Vec<MerkleCrdtEngine>) -> (f64, usize, usize) {
+fn sync_delta_vdiff(engines: &mut [MerkleCrdtEngine]) -> (f64, usize, usize) {
     let n = engines.len();
     let start = Instant::now();
     let mut rounds = 0;
@@ -182,7 +182,7 @@ fn sync_delta_vdiff(engines: &mut Vec<MerkleCrdtEngine>) -> (f64, usize, usize) 
 }
 
 /// Strategy 3: Gossip fan-out with delta-vdiff (O(N×K×Δ))
-fn sync_gossip_fanout(engines: &mut Vec<MerkleCrdtEngine>, fanout: usize) -> (f64, usize, usize) {
+fn sync_gossip_fanout(engines: &mut [MerkleCrdtEngine], fanout: usize) -> (f64, usize, usize) {
     let n = engines.len();
     let mut rng = rand::thread_rng();
     let start = Instant::now();

@@ -207,7 +207,7 @@ impl AutoEdgeGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::epistemic::{ClaimKind, CorrelationCell, LogOdds, SemanticFingerprint};
+    use crate::epistemic::{ClaimKind, LogOdds, SemanticFingerprint};
 
     fn make_embedding(seed: u64) -> QuantizedEmbedding {
         // Deterministic embedding from seed using BLAKE3

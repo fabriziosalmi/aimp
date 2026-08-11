@@ -1,6 +1,6 @@
-///! Mutation hot-path profiler — measures time spent in each step
-///!
-///! Run: cargo run --release --example profile_mutation
+//! Mutation hot-path profiler — measures time spent in each step
+//!
+//! Run: cargo run --release --example profile_mutation
 use aimp_node::crdt::merkle_dag::MerkleCrdtEngine;
 use aimp_node::crypto::{Identity, SecurityFirewall};
 use aimp_node::protocol::{AimpData, OpCode};

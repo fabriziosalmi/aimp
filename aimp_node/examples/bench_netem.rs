@@ -1,9 +1,9 @@
-///! Network impairment benchmark for AIMP
-///!
-///! Simulates degraded network conditions (packet loss, latency, jitter,
-///! partitions) and measures CRDT convergence behavior.
-///!
-///! Run: cargo run --release --manifest-path aimp_node/Cargo.toml --example bench_netem
+//! Network impairment benchmark for AIMP
+//!
+//! Simulates degraded network conditions (packet loss, latency, jitter,
+//! partitions) and measures CRDT convergence behavior.
+//!
+//! Run: cargo run --release --manifest-path aimp_node/Cargo.toml --example bench_netem
 use aimp_node::crdt::merkle_dag::{DagNode, MerkleCrdtEngine};
 use aimp_node::crypto::{Identity, SecurityFirewall};
 use aimp_node::protocol::{AimpData, OpCode};
@@ -58,7 +58,7 @@ fn recompute_heads(engine: &mut MerkleCrdtEngine) {
 /// Perform a single sync round between all node pairs with simulated network conditions.
 /// Returns (nodes_transferred, simulated_latency_us).
 fn sync_round_with_impairment(
-    engines: &mut Vec<MerkleCrdtEngine>,
+    engines: &mut [MerkleCrdtEngine],
     loss_pct: f64,
     _latency_us: u64,
     _jitter_us: u64,
@@ -117,7 +117,7 @@ fn sync_round_with_impairment(
     (transferred, total_simulated_latency)
 }
 
-fn check_converged(engines: &mut Vec<MerkleCrdtEngine>) -> (bool, usize) {
+fn check_converged(engines: &mut [MerkleCrdtEngine]) -> (bool, usize) {
     let roots: Vec<_> = engines.iter_mut().map(|e| e.get_merkle_root()).collect();
     let distinct = roots.iter().collect::<std::collections::HashSet<_>>().len();
     (distinct == 1, distinct)
@@ -365,21 +365,26 @@ fn main() {
         run_partition_scenario(50, 20.0),
     ];
 
-    // Print results table
+    // Print results table.
+    // `Roots` (distinct Merkle roots at the end) was recorded in NetemResult at
+    // four sites and never printed. Under packet loss it is the interesting
+    // number: `Conv?` only says whether the mesh agreed, this says how far apart
+    // it stayed when it did not.
     println!(
-        "\n{:<50} {:>8} {:>8} {:>10} {:>12}",
-        "Scenario", "Conv?", "Rounds", "Time", "Transferred"
+        "\n{:<50} {:>8} {:>8} {:>10} {:>12} {:>6}",
+        "Scenario", "Conv?", "Rounds", "Time", "Transferred", "Roots"
     );
-    println!("{}", "-".repeat(92));
+    println!("{}", "-".repeat(99));
 
     for r in &results {
         println!(
-            "{:<50} {:>8} {:>8} {:>9.3}ms {:>12}",
+            "{:<50} {:>8} {:>8} {:>9.3}ms {:>12} {:>6}",
             r.scenario,
             if r.converged { "YES" } else { "NO" },
             r.rounds,
             r.elapsed.as_secs_f64() * 1000.0,
             r.nodes_transferred,
+            r.distinct_roots_final,
         );
     }
 

@@ -171,7 +171,7 @@ fn main() {
     println!("| Edges total         | {:>7} |", graph.edges().len());
     println!(
         "| Graph memory (est.) | {:>5} B |",
-        claims.len() * claim_size + graph.edges().len() * edge_size
+        claims.len() * claim_size + std::mem::size_of_val(graph.edges())
     );
 }
 
