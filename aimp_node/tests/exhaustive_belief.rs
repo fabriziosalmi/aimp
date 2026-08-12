@@ -9,7 +9,9 @@
 //!
 //! Properties verified:
 //! 1. BeliefDeterminism: Same input → identical output (no hidden non-determinism)
-//! 2. TrustBounded: Trust values never exceed i32 bounds after propagation
+//! 2. TrustBounded: propagated trust stays within LogOdds::SAFE_MIN/SAFE_MAX
+//!    (±1e9, the range aggregates are clamped to) — NOT merely within i32,
+//!    which every i32 satisfies for free
 //! 3. ContradictionSafety: A single contradiction with α=50% cannot flip Accepted→Rejected
 //! 4. CycleSafety: Cyclic graphs cannot produce unbounded trust amplification
 //! 5. ConvergenceMonotonicity: Pass 1 converges in finite steps
@@ -78,7 +80,12 @@ fn base_trust_map(
     let mut bt = rustc_hash::FxHashMap::default();
     for (i, claim) in claims.iter().enumerate() {
         let rep = tracker.reputation(&claim.origin);
-        bt.insert(i as u32, rep.weight_evidence(claim.confidence));
+        // `declared_confidence()`, not the raw field — this must mirror what the
+        // production path does (see the call sites in `epistemic.rs`), or the
+        // exhaustive suite ends up verifying a path nothing takes: feeding raw
+        // `confidence` here is exactly how this file used to smuggle i32::MIN
+        // into propagation.
+        bt.insert(i as u32, rep.weight_evidence(claim.declared_confidence()));
     }
     bt
 }
@@ -159,8 +166,11 @@ fn exhaustive_belief_determinism() {
 }
 
 // ─── Property 2: TrustBounded ───────────────────────────────
-// After propagation, all trust values remain within i32 bounds.
-// Test with extreme inputs.
+// After propagation, all trust values remain within SAFE_MIN..=SAFE_MAX.
+// Fed deliberately adversarial confidences, i32::MIN/MAX included: those are
+// legal on the wire, so the property under test is that the clamp on declared
+// inputs (#11) holds them in range through propagation — not that an i32 fits
+// in an i32.
 
 #[test]
 fn exhaustive_trust_bounded() {
@@ -193,25 +203,20 @@ fn exhaustive_trust_bounded() {
         let propagated = graph.propagate_trust_full(&bt, 20, 5000, &claims, &tracker);
 
         for (&node, &trust) in &propagated {
-            // KNOWN-VACUOUS — see issue #16. `trust.value()` is an i32, so both
-            // comparisons hold by construction and this assertion cannot fail.
-            // Tightening it to the range the arithmetic actually maintains
-            // (LogOdds::SAFE_MIN/SAFE_MAX, ±1e9) makes it fail immediately on
-            // init=i32::MIN: a node with no incoming contribution keeps its base
-            // trust without passing through `update()`, so it is never clamped.
-            // Fixing that is a design decision about LogOdds::MIN/MAX vs SAFE_*,
-            // tracked in #16 — left as-is here rather than silently picking a
-            // semantic inside a lint cleanup.
-            #[allow(clippy::absurd_extreme_comparisons)]
-            {
-                assert!(
-                    trust.value() >= i32::MIN && trust.value() <= i32::MAX,
-                    "TrustBounded violated: node {} has trust {} (init={})",
-                    node,
-                    trust.value(),
-                    init_val
-                );
-            }
+            // This assertion used to read `>= i32::MIN && <= i32::MAX`, which
+            // every i32 satisfies by construction: TrustBounded could not fail,
+            // so for the whole life of this file it verified nothing. #11 gave
+            // the property a real bound — `SAFE_MIN`/`SAFE_MAX` is the range
+            // `LogOdds::update` clamps aggregates to, and with declared inputs
+            // now capped at `MAX_DECLARED` no propagation can escape it.
+            assert!(
+                trust.value() >= LogOdds::SAFE_MIN && trust.value() <= LogOdds::SAFE_MAX,
+                "TrustBounded violated: node {} has trust {}, outside ±{} (init={})",
+                node,
+                trust.value(),
+                LogOdds::SAFE_MAX,
+                init_val
+            );
         }
         configs_tested += 1;
     }
