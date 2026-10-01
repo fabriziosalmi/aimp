@@ -1086,6 +1086,128 @@ fn c8_inconsistent_embeddings_do_not_buy_independence() {
     );
 }
 
+/// C9. Does `embedding_version` reopen what C8 closed?
+///
+/// C8 proved that forging DISTINCT embeddings under the SAME version is caught:
+/// Pass 0 keys on `(content fingerprint, embedding_version)`, spots the
+/// disagreement, and drops the whole content group to unassessed.
+///
+/// But `embedding_version` is itself a self-declared, unvalidated wire field —
+/// the same property C8 identified in the embedding. Nothing checks it against a
+/// registry, and the union loop short-circuits on it BEFORE any Hamming
+/// comparison:
+///
+/// ```ignore
+/// if claims[i].embedding_version != claims[j].embedding_version { continue; }
+/// ```
+///
+/// while `assessed` is granted to any claim merely CARRYING an embedding. That
+/// inverts the intended logic: a distinct embedding CLUSTER is what is supposed
+/// to substantiate independence, and declaring a novel version skips the
+/// clustering that would do the substantiating while keeping the credit it was
+/// supposed to earn.
+///
+/// The fixture is minimal: identical content, identical fingerprints,
+/// BYTE-IDENTICAL embeddings. Nothing is forged. The only field that varies is
+/// the integer `embedding_version`.
+///
+/// The sweep over cohort size exists to constrain the fix. Demoting only
+/// SINGLETON versions to unassessed is the obvious patch, and the `per_version=2`
+/// row shows what it leaves on the table: an attacker pairs up identities so
+/// every version has a corroborator.
+///
+/// IGNORED: documents an open shape, see issue #10. Remove `#[ignore]` once the
+/// policy is decided.
+#[test]
+#[ignore = "documents an open shape; see issue #10"]
+fn c9_distinct_embedding_versions_do_not_buy_independence() {
+    use aimp_node::semantic_topology::QuantizedEmbedding;
+
+    let n = 100u64;
+    let mut tracker = InMemoryReputationTracker::new();
+    for i in 0..n {
+        tracker.set_reputation(&origin_of(i), Reputation::from_bps(HONEST_REP));
+    }
+
+    fn agg(claims: &[Claim], tracker: &InMemoryReputationTracker) -> i64 {
+        let groups = correlation_groups(claims, 30);
+        let ev: Vec<(LogOdds, CorrelationGroup, ClaimHash)> = claims
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                (
+                    tracker
+                        .reputation(&c.origin)
+                        .weight_evidence(c.declared_confidence()),
+                    groups[i],
+                    c.id,
+                )
+            })
+            .collect();
+        LogOdds::aggregate_hierarchical(&ev, DISCOUNT, UNASSESSED_DISCOUNT_BPS).value() as i64
+    }
+
+    // One embedding, shared by every identity. Semantically these are the same
+    // observation and SHOULD land in one correlation group.
+    let shared = QuantizedEmbedding::new([0x0123_4567_89AB_CDEF; 4]);
+
+    let build = |per_version: u64| -> Vec<Claim> {
+        (0..n)
+            .map(|i| {
+                let mut c = claim(i, HONEST_CONF, None, origin_of(i), 1);
+                c.embedding = Some(shared);
+                c.embedding_version = (i / per_version) as u32 + 1;
+                c
+            })
+            .collect()
+    };
+
+    // Baseline: honest disclosure of a shared cell.
+    let disclosed: Vec<Claim> = (0..n)
+        .map(|i| claim(i, HONEST_CONF, Some(42), origin_of(i), 1))
+        .collect();
+    let v_disclosed = agg(&disclosed, &tracker);
+
+    println!("\n=== C9. Self-declared embedding_version (N=100) ===");
+    println!("honest disclosure baseline : {}", v_disclosed);
+    println!("\n{:>14}{:>10}{:>14}{:>12}", "identities", "versions", "aggregate", "x honest");
+    for per_version in [100u64, 10, 5, 2, 1] {
+        let v = agg(&build(per_version), &tracker);
+        println!(
+            "{:>14}{:>10}{:>14}{:>11.1}x",
+            per_version,
+            n / per_version,
+            v,
+            v as f64 / v_disclosed as f64
+        );
+    }
+    println!(
+        "\n`per_version=100` is the control: one shared version, so the embeddings \
+         actually\nget compared, they cluster, and the discount applies. Every other \
+         row skips\nthe comparison entirely."
+    );
+
+    // Control: a single shared version must still cluster and be discounted.
+    let v_control = agg(&build(n), &tracker);
+    assert!(
+        v_control < v_disclosed * 5,
+        "control: one shared embedding under one version must cluster and be \
+         discounted: {} vs {}",
+        v_control,
+        v_disclosed
+    );
+
+    // The shape itself. Expected to FAIL until the policy in #10 is decided.
+    let v_attack = agg(&build(1), &tracker);
+    assert!(
+        v_attack < v_disclosed * 5,
+        "a self-declared embedding_version must not buy substantiated \
+         independence when the embedding is byte-identical: {} vs {}",
+        v_attack,
+        v_disclosed
+    );
+}
+
 // ════════════════════════════════════════════════════════════════════
 // SECTION D — End-to-end through the epoch-aligned pipeline.
 // ════════════════════════════════════════════════════════════════════

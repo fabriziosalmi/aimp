@@ -621,6 +621,34 @@ pub struct Claim {
     /// Embedding model version (v0.4.0). Only claims with the same version
     /// are compared. Allows protocol-level model upgrades without breaking
     /// existing claims. Default: 0 (unversioned / legacy).
+    ///
+    /// # Load-bearing and unvalidated
+    ///
+    /// This field has the same property C8 identified in `embedding` itself: it
+    /// is self-declared, arrives straight off the wire, and nothing checks it
+    /// against a registry. But it gates the comparison *earlier* —
+    /// [`correlation_groups`] skips the Hamming test entirely when two versions
+    /// differ, while `assessed` is granted to any claim merely CARRYING an
+    /// embedding.
+    ///
+    /// So declaring a novel version skips the clustering that is supposed to
+    /// substantiate independence while keeping the credit that clustering would
+    /// have earned. A distinct embedding *cluster* is the substantiation; a
+    /// distinct *version* is only an assertion that no cluster can be computed.
+    /// Measured at 70.3x the honest ceiling with byte-identical embeddings and
+    /// identical content — the full pre-v0.5.0 attack, restored by one `u32`.
+    /// See `c9_distinct_embedding_versions_do_not_buy_independence` and issue #10.
+    ///
+    /// # It must pin the numerical path, not just the model
+    ///
+    /// "Disjoint latent space" is not only a different checkpoint. The same
+    /// checkpoint at a different precision is also one: measured over a 22-layer
+    /// encoder, fp32 and dynamic-INT8 embeddings of the same input have cosine
+    /// ~0.098 to each other, with every 12-bit LSH band moved. fp32 across
+    /// threading and across runtimes (PyTorch, ONNX Runtime) was bit-exact, so
+    /// the field is usable — but a version must identify runtime and precision,
+    /// or an honest heterogeneous mesh degrades into apparent independence by
+    /// accident.
     pub embedding_version: u32,
 }
 
@@ -742,6 +770,17 @@ impl Claim {
 /// Group ids are derived from the MINIMUM `ClaimHash` in each component, which
 /// is independent of union order and of map iteration order. Claims with
 /// mismatched `embedding_version` are never unioned (disjoint latent spaces).
+///
+/// # Known gap
+///
+/// That last sentence is also an escape hatch. `embedding_version` is an
+/// unvalidated wire field, the mismatch check short-circuits before any Hamming
+/// comparison, and a claim is `assessed` merely for carrying an embedding — so
+/// declaring one version per identity yields one assessed singleton group per
+/// identity, which then sum freely. Measured 70.3x the honest ceiling at N=100
+/// with byte-identical embeddings; yield is linear in the number of declared
+/// versions, so demoting only singleton versions still leaves 45.6x when
+/// identities pair up. Tracking in issue #10; the policy is not decided here.
 pub fn correlation_groups(claims: &[Claim], threshold_bits: u32) -> Vec<CorrelationGroup> {
     let n = claims.len();
     let mut parent: Vec<usize> = (0..n).collect();
