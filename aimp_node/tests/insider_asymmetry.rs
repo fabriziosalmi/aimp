@@ -1170,7 +1170,10 @@ fn c9_distinct_embedding_versions_do_not_buy_independence() {
 
     println!("\n=== C9. Self-declared embedding_version (N=100) ===");
     println!("honest disclosure baseline : {}", v_disclosed);
-    println!("\n{:>14}{:>10}{:>14}{:>12}", "identities", "versions", "aggregate", "x honest");
+    println!(
+        "\n{:>14}{:>10}{:>14}{:>12}",
+        "identities", "versions", "aggregate", "x honest"
+    );
     for per_version in [100u64, 10, 5, 2, 1] {
         let v = agg(&build(per_version), &tracker);
         println!(
