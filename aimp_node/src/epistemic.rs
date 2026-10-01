@@ -622,33 +622,41 @@ pub struct Claim {
     /// are compared. Allows protocol-level model upgrades without breaking
     /// existing claims. Default: 0 (unversioned / legacy).
     ///
-    /// # Load-bearing and unvalidated
+    /// # Advisory, and deliberately not load-bearing
     ///
-    /// This field has the same property C8 identified in `embedding` itself: it
-    /// is self-declared, arrives straight off the wire, and nothing checks it
-    /// against a registry. But it gates the comparison *earlier* —
-    /// [`correlation_groups`] skips the Hamming test entirely when two versions
-    /// differ, while `assessed` is granted to any claim merely CARRYING an
-    /// embedding.
+    /// This field is self-declared, arrives straight off the wire, and nothing
+    /// checks it against a registry — the same property C8 identified in
+    /// `embedding` itself. It therefore appears in no decision key in
+    /// [`correlation_groups`]: not in the content-consistency pass, not in the
+    /// union predicate, not in the cluster id.
     ///
-    /// So declaring a novel version skips the clustering that is supposed to
-    /// substantiate independence while keeping the credit that clustering would
-    /// have earned. A distinct embedding *cluster* is the substantiation; a
-    /// distinct *version* is only an assertion that no cluster can be computed.
-    /// Measured at 70.3x the honest ceiling with byte-identical embeddings and
-    /// identical content — the full pre-v0.5.0 attack, restored by one `u32`.
-    /// See `c9_distinct_embedding_versions_do_not_buy_independence` and issue #10.
+    /// It used to gate the union predicate, which made an attacker-controlled
+    /// `u32` an opt-out from the correlation check: a differing version skipped
+    /// the Hamming comparison entirely, while `assessed` was granted for merely
+    /// CARRYING an embedding, so declaring one version per identity produced one
+    /// assessed singleton group per identity, free to sum. Measured at 70.3x the
+    /// honest ceiling with byte-identical embeddings and identical content — the
+    /// whole pre-v0.5.0 attack restored by one integer — and linear in the number
+    /// of declared versions, so bounding only singleton cohorts would still have
+    /// left 45.6x once identities paired up. See
+    /// `c9_distinct_embedding_versions_do_not_buy_independence` and issue #10.
     ///
-    /// # It must pin the numerical path, not just the model
+    /// Comparing across versions is sound rather than merely safe: two genuinely
+    /// incomparable latent spaces land ~128 bits apart on 256
+    /// (`binomial(256, 1/2)`), and `P(d <= 30)` is on the order of 1e-45, so they
+    /// do not union by accident. `c9b_cross_version_comparison_does_not_collapse_
+    /// real_independence` pins that real independent evidence scores identically
+    /// whether it declares one version or one per identity.
+    ///
+    /// # If you reinstate it as a gate, pin the numerical path
     ///
     /// "Disjoint latent space" is not only a different checkpoint. The same
-    /// checkpoint at a different precision is also one: measured over a 22-layer
-    /// encoder, fp32 and dynamic-INT8 embeddings of the same input have cosine
-    /// ~0.098 to each other, with every 12-bit LSH band moved. fp32 across
-    /// threading and across runtimes (PyTorch, ONNX Runtime) was bit-exact, so
-    /// the field is usable — but a version must identify runtime and precision,
-    /// or an honest heterogeneous mesh degrades into apparent independence by
-    /// accident.
+    /// checkpoint at a different precision is one too: over a 22-layer encoder,
+    /// fp32 and dynamic-INT8 embeddings of the same input measure cosine ~0.098
+    /// to each other with every 12-bit LSH band moved, while fp32 was bit-exact
+    /// across threading and across runtimes (PyTorch, ONNX Runtime). A version
+    /// that names only the model would let an honest heterogeneous mesh degrade
+    /// into apparent independence by accident.
     pub embedding_version: u32,
 }
 
@@ -768,19 +776,21 @@ impl Claim {
 /// # Determinism
 ///
 /// Group ids are derived from the MINIMUM `ClaimHash` in each component, which
-/// is independent of union order and of map iteration order. Claims with
-/// mismatched `embedding_version` are never unioned (disjoint latent spaces).
+/// is independent of union order and of map iteration order.
 ///
-/// # Known gap
+/// # `embedding_version` does not partition
 ///
-/// That last sentence is also an escape hatch. `embedding_version` is an
-/// unvalidated wire field, the mismatch check short-circuits before any Hamming
-/// comparison, and a claim is `assessed` merely for carrying an embedding — so
-/// declaring one version per identity yields one assessed singleton group per
-/// identity, which then sum freely. Measured 70.3x the honest ceiling at N=100
-/// with byte-identical embeddings; yield is linear in the number of declared
-/// versions, so demoting only singleton versions still leaves 45.6x when
-/// identities pair up. Tracking in issue #10; the policy is not decided here.
+/// It used to. Claims with mismatched versions were never unioned, which made an
+/// unvalidated wire field an opt-out from the correlation check — declaring one
+/// version per identity yielded one assessed singleton group per identity, free
+/// to sum. Measured at 70.3x the honest ceiling with byte-identical embeddings,
+/// and linear in the number of declared versions, so bounding only singleton
+/// cohorts would still have left 45.6x once identities paired up.
+///
+/// The rule now is that a self-declared field may not exempt a claim from a
+/// check. The version appears in no key here: not in the content-consistency
+/// pass, not in the union predicate, not in the cluster id. What remains is the
+/// comparison itself, which is what substantiates independence.
 pub fn correlation_groups(claims: &[Claim], threshold_bits: u32) -> Vec<CorrelationGroup> {
     let n = claims.len();
     let mut parent: Vec<usize> = (0..n).collect();
@@ -800,15 +810,23 @@ pub fn correlation_groups(claims: &[Claim], threshold_bits: u32) -> Vec<Correlat
     // assessability and falls back to unassessed grouping. Fail-closed and
     // order-independent: we flag the CONTENT KEY, never an individual claim, so
     // the outcome cannot depend on which claim was seen first.
+    //
+    // The key is the CONTENT ALONE, deliberately not `(content, version)`.
+    // Keying on the pair let a signer declare a novel `embedding_version` and
+    // land in a fresh bucket, so K identities asserting identical content could
+    // declare K mutually distant embeddings without ever being compared — the
+    // same escape this function closes in the union loop below. A different
+    // declared version does not license a different embedding for the same
+    // content: either the content determines the embedding or the declaration is
+    // noise, and in both cases the version is irrelevant to the question.
     let mut seen_embedding: rustc_hash::FxHashMap<
-        ([u8; 16], u32),
+        [u8; 16],
         &crate::semantic_topology::QuantizedEmbedding,
     > = rustc_hash::FxHashMap::default();
-    let mut inconsistent: std::collections::BTreeSet<([u8; 16], u32)> =
-        std::collections::BTreeSet::new();
+    let mut inconsistent: std::collections::BTreeSet<[u8; 16]> = std::collections::BTreeSet::new();
     for c in claims.iter() {
         let Some(e) = &c.embedding else { continue };
-        let key = (c.fingerprint.primary, c.embedding_version);
+        let key = c.fingerprint.primary;
         match seen_embedding.get(&key) {
             Some(prev) if *prev != e => {
                 inconsistent.insert(key);
@@ -824,10 +842,7 @@ pub fn correlation_groups(claims: &[Claim], threshold_bits: u32) -> Vec<Correlat
     // is internally consistent about what that embedding is.
     let assessable: Vec<bool> = claims
         .iter()
-        .map(|c| {
-            c.embedding.is_some()
-                && !inconsistent.contains(&(c.fingerprint.primary, c.embedding_version))
-        })
+        .map(|c| c.embedding.is_some() && !inconsistent.contains(&c.fingerprint.primary))
         .collect();
 
     fn find(parent: &mut [usize], mut x: usize) -> usize {
@@ -852,9 +867,22 @@ pub fn correlation_groups(claims: &[Claim], threshold_bits: u32) -> Vec<Correlat
             let Some(ej) = &claims[j].embedding else {
                 continue;
             };
-            if claims[i].embedding_version != claims[j].embedding_version {
-                continue;
-            }
+            // No `embedding_version` short-circuit. It used to sit here, and it
+            // made an attacker-controlled u32 an opt-out from the correlation
+            // check: a differing version skipped the comparison, while
+            // `assessed` was granted for merely CARRYING an embedding, so
+            // declaring one version per identity produced one assessed singleton
+            // group per identity. Measured at 70.3x the honest ceiling with
+            // byte-identical embeddings.
+            //
+            // Comparing across versions is sound. Two genuinely incomparable
+            // latent spaces produce vectors ~128 bits apart (binomial(256, 1/2)),
+            // and P(d <= 30) is on the order of 1e-45 — so cross-space pairs
+            // simply do not union, which is the correct outcome, while identical
+            // or near-identical embeddings do union no matter what version is
+            // declared over them. The field keeps its stated purpose of
+            // namespacing honest model upgrades; it no longer functions as an
+            // exemption.
             if ei.hamming_distance(ej) <= threshold_bits {
                 let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
                 if ri != rj {
@@ -894,9 +922,12 @@ pub fn correlation_groups(claims: &[Claim], threshold_bits: u32) -> Vec<Correlat
             }
             let root = find(&mut parent, i);
             let anchor = min_id[&root];
+            // Keyed on the component anchor alone. Mixing `embedding_version`
+            // in would re-split a component that the union loop just joined
+            // across versions, putting co-clustered claims into different
+            // groups and undoing the discount.
             let mut hasher = blake3::Hasher::new();
-            hasher.update(b"aimp.correlation.cluster.v1");
-            hasher.update(&claims[i].embedding_version.to_le_bytes());
+            hasher.update(b"aimp.correlation.cluster.v2");
             hasher.update(&anchor);
             CorrelationGroup {
                 key: u64::from_le_bytes(hasher.finalize().as_bytes()[..8].try_into().unwrap()),

@@ -1086,40 +1086,27 @@ fn c8_inconsistent_embeddings_do_not_buy_independence() {
     );
 }
 
-/// C9. Does `embedding_version` reopen what C8 closed?
+/// C9. `embedding_version` must not buy independence.
 ///
-/// C8 proved that forging DISTINCT embeddings under the SAME version is caught:
-/// Pass 0 keys on `(content fingerprint, embedding_version)`, spots the
-/// disagreement, and drops the whole content group to unassessed.
-///
-/// But `embedding_version` is itself a self-declared, unvalidated wire field —
-/// the same property C8 identified in the embedding. Nothing checks it against a
-/// registry, and the union loop short-circuits on it BEFORE any Hamming
-/// comparison:
-///
-/// ```ignore
-/// if claims[i].embedding_version != claims[j].embedding_version { continue; }
-/// ```
-///
-/// while `assessed` is granted to any claim merely CARRYING an embedding. That
-/// inverts the intended logic: a distinct embedding CLUSTER is what is supposed
-/// to substantiate independence, and declaring a novel version skips the
-/// clustering that would do the substantiating while keeping the credit it was
-/// supposed to earn.
+/// C8 proved that forging DISTINCT embeddings under the SAME version is caught.
+/// But `embedding_version` had the same property C8 identified in `embedding`
+/// itself — self-declared, straight off the wire, checked against nothing —
+/// while gating the comparison *earlier*: a version mismatch skipped the Hamming
+/// test, and `assessed` was granted for merely CARRYING an embedding. Declaring
+/// a novel version therefore skipped the clustering that is supposed to
+/// substantiate independence and kept the credit that clustering would have
+/// earned.
 ///
 /// The fixture is minimal: identical content, identical fingerprints,
-/// BYTE-IDENTICAL embeddings. Nothing is forged. The only field that varies is
-/// the integer `embedding_version`.
+/// BYTE-IDENTICAL embeddings. Nothing is forged. The only field that varies
+/// across identities is the integer.
 ///
-/// The sweep over cohort size exists to constrain the fix. Demoting only
-/// SINGLETON versions to unassessed is the obvious patch, and the `per_version=2`
-/// row shows what it leaves on the table: an attacker pairs up identities so
-/// every version has a corroborator.
-///
-/// IGNORED: documents an open shape, see issue #10. Remove `#[ignore]` once the
-/// policy is decided.
+/// The sweep over cohort size is what constrains the fix. Bounding only
+/// SINGLETON versions was the obvious patch, and the `per_version = 2` row is
+/// why it is not enough: an attacker pairs identities so every version has a
+/// corroborator. The fix has to bound EVERY row, which is why every row is
+/// asserted and not just the extreme.
 #[test]
-#[ignore = "documents an open shape; see issue #10"]
 fn c9_distinct_embedding_versions_do_not_buy_independence() {
     use aimp_node::semantic_topology::QuantizedEmbedding;
 
@@ -1148,7 +1135,8 @@ fn c9_distinct_embedding_versions_do_not_buy_independence() {
     }
 
     // One embedding, shared by every identity. Semantically these are the same
-    // observation and SHOULD land in one correlation group.
+    // observation and MUST land in one correlation group, whatever version each
+    // identity declares over it.
     let shared = QuantizedEmbedding::new([0x0123_4567_89AB_CDEF; 4]);
 
     let build = |per_version: u64| -> Vec<Claim> {
@@ -1167,6 +1155,7 @@ fn c9_distinct_embedding_versions_do_not_buy_independence() {
         .map(|i| claim(i, HONEST_CONF, Some(42), origin_of(i), 1))
         .collect();
     let v_disclosed = agg(&disclosed, &tracker);
+    let ceiling = v_disclosed * 5;
 
     println!("\n=== C9. Self-declared embedding_version (N=100) ===");
     println!("honest disclosure baseline : {}", v_disclosed);
@@ -1183,31 +1172,105 @@ fn c9_distinct_embedding_versions_do_not_buy_independence() {
             v,
             v as f64 / v_disclosed as f64
         );
+        assert!(
+            v < ceiling,
+            "splitting {} identities across {} declared versions bought \
+             substantiated independence ({} vs honest {}); the embeddings are \
+             byte-identical, so no comparison the protocol can run distinguishes \
+             these sources",
+            n,
+            n / per_version,
+            v,
+            v_disclosed
+        );
     }
-    println!(
-        "\n`per_version=100` is the control: one shared version, so the embeddings \
-         actually\nget compared, they cluster, and the discount applies. Every other \
-         row skips\nthe comparison entirely."
-    );
+}
 
-    // Control: a single shared version must still cluster and be discounted.
-    let v_control = agg(&build(n), &tracker);
+/// C9b. The fix must not break REAL independence.
+///
+/// C9 removes `embedding_version` from every key in `correlation_groups`, so
+/// claims are now compared across versions. The risk of that direction is
+/// over-grouping: if cross-version comparison collapsed genuinely independent
+/// evidence, the Bayesian property the layer exists to implement — real
+/// independent observations must raise confidence without bound — would be
+/// broken, which is a far worse trade than the attack it closes.
+///
+/// It does not. Mutually distant embeddings stay in distinct clusters and sum
+/// freely whether they declare the same version or different ones. Two
+/// incomparable latent spaces land ~128 bits apart on 256
+/// (`binomial(256, 1/2)`), and `P(d <= 30)` is on the order of 1e-45, so
+/// cross-space pairs do not union by accident.
+#[test]
+fn c9b_cross_version_comparison_does_not_collapse_real_independence() {
+    use aimp_node::semantic_topology::QuantizedEmbedding;
+
+    let n = 100u64;
+    let mut tracker = InMemoryReputationTracker::new();
+    for i in 0..n {
+        tracker.set_reputation(&origin_of(i), Reputation::from_bps(HONEST_REP));
+    }
+
+    fn agg(claims: &[Claim], tracker: &InMemoryReputationTracker) -> i64 {
+        let groups = correlation_groups(claims, 30);
+        let ev: Vec<(LogOdds, CorrelationGroup, ClaimHash)> = claims
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                (
+                    tracker
+                        .reputation(&c.origin)
+                        .weight_evidence(c.declared_confidence()),
+                    groups[i],
+                    c.id,
+                )
+            })
+            .collect();
+        LogOdds::aggregate_hierarchical(&ev, DISCOUNT, UNASSESSED_DISCOUNT_BPS).value() as i64
+    }
+
+    // Distinct content AND mutually distant embeddings: genuinely independent
+    // observations, which must keep summing.
+    let independent = |same_version: bool| -> Vec<Claim> {
+        (0..n)
+            .map(|i| {
+                let mut c =
+                    claim_with_content(i, HONEST_CONF, None, origin_of(i), 1, &i.to_le_bytes());
+                c.embedding = Some(QuantizedEmbedding::new([
+                    i.wrapping_mul(0x9E37_79B9_7F4A_7C15),
+                    i.wrapping_mul(0xBF58_476D_1CE4_E5B9),
+                    i.wrapping_mul(0x94D0_49BB_1331_11EB),
+                    i.wrapping_mul(0x2545_F491_4F6C_DD1D),
+                ]));
+                c.embedding_version = if same_version { 1 } else { i as u32 + 1 };
+                c
+            })
+            .collect()
+    };
+
+    let v_same = agg(&independent(true), &tracker);
+    let v_mixed = agg(&independent(false), &tracker);
+    let disclosed: Vec<Claim> = (0..n)
+        .map(|i| claim(i, HONEST_CONF, Some(42), origin_of(i), 1))
+        .collect();
+    let v_disclosed = agg(&disclosed, &tracker);
+
+    println!("\n=== C9b. Real independence survives cross-version comparison (N=100) ===");
+    println!("honest correlated cluster       : {}", v_disclosed);
+    println!("independent, one version        : {}", v_same);
+    println!("independent, a version each     : {}", v_mixed);
+
     assert!(
-        v_control < v_disclosed * 5,
-        "control: one shared embedding under one version must cluster and be \
-         discounted: {} vs {}",
-        v_control,
+        v_same > v_disclosed * 5,
+        "genuinely independent evidence must still sum well past the correlated \
+         ceiling: {} vs {}",
+        v_same,
         v_disclosed
     );
-
-    // The shape itself. Expected to FAIL until the policy in #10 is decided.
-    let v_attack = agg(&build(1), &tracker);
-    assert!(
-        v_attack < v_disclosed * 5,
-        "a self-declared embedding_version must not buy substantiated \
-         independence when the embedding is byte-identical: {} vs {}",
-        v_attack,
-        v_disclosed
+    assert_eq!(
+        v_same, v_mixed,
+        "declaring a version must now be inert: the same independent evidence \
+         scored {} under one version and {} under one version per identity",
+        v_same, v_mixed
     );
 }
 
