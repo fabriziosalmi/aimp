@@ -26,3 +26,21 @@ fn protocol_surface_is_reachable_without_default_features() {
     let _ = std::mem::size_of::<AimpEnvelope>();
     let _ = std::mem::size_of::<AimpData>();
 }
+
+#[test]
+fn identity_seed_maps_to_the_rfc8032_public_key_on_every_backend() {
+    // RFC 8032 section 7.1, TEST 1. Both the dalek and the `fast-crypto`
+    // (ring) backends must agree, or a persisted seed would yield a different
+    // node id after switching features.
+    let seed: [u8; 32] =
+        hex::decode("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60")
+            .unwrap()
+            .try_into()
+            .unwrap();
+    let id = Identity::from_secret_bytes(seed);
+    assert_eq!(
+        hex::encode(id.node_id()),
+        "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+    );
+    assert_eq!(id.secret_bytes(), seed);
+}

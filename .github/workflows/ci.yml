@@ -53,6 +53,11 @@ jobs:
           workspaces: aimp_node
       - name: cargo test
         run: cargo test --manifest-path aimp_node/Cargo.toml
+      # `fast-crypto` swaps in a second Identity backend (ring). Nothing built
+      # it, so it drifted from the default one and --all-features stopped
+      # compiling. Run the suite on it too.
+      - name: cargo test (all features)
+        run: cargo test --manifest-path aimp_node/Cargo.toml --all-features
 
   security:
     name: Security Audit
