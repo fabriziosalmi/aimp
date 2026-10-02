@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-02
+
 ### Changed — BREAKING
 
 - **L3 epistemic layer: `correlation_cell: None` is no longer summed at full weight.**
@@ -34,12 +36,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rather than trusting the declared cell.
 - `KnowledgeGraph::propagate_trust_correlated` — correlation discounting on the trust
   propagation path, which the v0.3.0 defense never reached.
+- `Identity::from_secret_bytes` / `Identity::secret_bytes` — round-trip the Ed25519 seed
+  so an embedder keeps a stable node id across restarts.
+- `cli` feature (on by default). The terminal dashboard, argument parsing, HTTP metrics
+  endpoint and config loader now sit behind it: library consumers using
+  `default-features = false` build 100 crates instead of 192.
 
 ### Fixed
 
 - Correlation discounting was absent from `propagate_trust_advanced` and
   `LogOddsBeliefEngine::compute`; 100 correlated sources amplified a conclusion to
   30,908 where the reducer capped the same 100 at 723.
+- A self-declared `embedding_version` exempted a claim from the correlation check:
+  declaring one version per identity restored the whole pre-fix attack (50,800 vs an
+  honest 723). The version is now in no decision key; cluster ids change accordingly
+  (domain `aimp.correlation.cluster.v2`) (#21).
+- `--all-features` did not compile: the `fast-crypto` (ring) `Identity` backend lacked the
+  seed round-trip. Both backends are now pinned to an RFC 8032 vector and CI tests
+  `--all-features` (#23).
 - Self-declared `confidence` was unbounded (`i32::MAX` accepted from the wire).
 - Embeddings were not bound to claim content, allowing forged distinct embeddings to
   manufacture independence.
@@ -47,14 +61,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`from_percent(60) = 405` but `to_percent(405)` returned 70). The negative side was
   correctly aligned, so the error was systematic and one-directional.
 
+### Security
+
+- `prometheus` no longer pulls `protobuf` 2.28 (RUSTSEC-2024-0437): only the text
+  exposition is used, so its default features are off (#22).
+- Dependency bumps: `ring` 0.17.12, `rand` 0.8.6, `msgpack` 1.2.1, `pynacl` 1.6.2.
+
 ### Known limitations
 
-- `embedding_version` discipline is now **safety-critical**: two honest builds producing
-  different embeddings for identical content under the same version will flag each other
-  as inconsistent and both degrade to unassessed. Fail-closed, but a new failure mode.
+- Embedding determinism is now **safety-critical**: two honest builds producing different
+  embeddings for identical content flag each other as inconsistent and both degrade to
+  unassessed. Since #21 this holds whatever `embedding_version` they declare, because the
+  version no longer partitions the check. Fail-closed, but a new failure mode.
 - K independently-delegated identities with distinct evidence sources and no embeddings
   remain indistinguishable from K independent sources by aggregation alone. Tracked in
-  issue #10.
+  issue #10. Closing it needs authorization bound into the epoch certificate (issue #8),
+  planned for a later release.
 
 ## [0.1.0] - 2026-03-23
 
