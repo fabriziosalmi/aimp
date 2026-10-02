@@ -96,6 +96,9 @@ mod backend {
 
     pub struct Identity {
         key_pair: ring::signature::Ed25519KeyPair,
+        // ring never hands the seed back out of a key pair, so keep it to
+        // support `secret_bytes`, matching the dalek backend's surface.
+        seed: [u8; 32],
         public_key_bytes: [u8; 32],
         pub noise_static_secret: x25519_dalek::StaticSecret,
         pub noise_static_public: x25519_dalek::PublicKey,
@@ -103,30 +106,38 @@ mod backend {
 
     impl Identity {
         pub fn new() -> Self {
+            use ring::rand::SecureRandom;
             let rng = ring::rand::SystemRandom::new();
-            let pkcs8 = ring::signature::Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
-            let key_pair = ring::signature::Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap();
+            let mut seed = [0u8; 32];
+            rng.fill(&mut seed).unwrap();
+            Self::from_secret_bytes(seed)
+        }
+
+        /// Reconstruct an Identity from a 32-byte Ed25519 secret seed.
+        /// Same seed, same `node_id` and Noise key as the dalek backend.
+        pub fn from_secret_bytes(secret: [u8; 32]) -> Self {
+            let key_pair = ring::signature::Ed25519KeyPair::from_seed_unchecked(&secret)
+                .expect("any 32-byte string is a valid Ed25519 seed");
 
             let mut public_key_bytes = [0u8; 32];
             public_key_bytes.copy_from_slice(key_pair.public_key().as_ref());
 
-            // Derive X25519 keys from the first 32 bytes of PKCS8 seed
-            // (ring doesn't expose raw secret, so we derive from pkcs8)
-            let seed_bytes: [u8; 32] = {
-                let mut b = [0u8; 32];
-                // PKCS8 for Ed25519 has the seed at offset 16 (after ASN.1 header)
-                b.copy_from_slice(&pkcs8.as_ref()[16..48]);
-                b
-            };
-            let noise_static_secret = x25519_dalek::StaticSecret::from(seed_bytes);
+            let noise_static_secret = x25519_dalek::StaticSecret::from(secret);
             let noise_static_public = x25519_dalek::PublicKey::from(&noise_static_secret);
 
             Self {
                 key_pair,
+                seed: secret,
                 public_key_bytes,
                 noise_static_secret,
                 noise_static_public,
             }
+        }
+
+        /// Return the 32-byte raw Ed25519 secret seed. Treat it as
+        /// confidential: it is the node's signing private key.
+        pub fn secret_bytes(&self) -> [u8; 32] {
+            self.seed
         }
 
         pub fn node_id(&self) -> NodeId {
