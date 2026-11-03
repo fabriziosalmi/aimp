@@ -1,2 +1,2 @@
-msgpack==1.2.1
+msgpack==1.2.3
 pynacl==1.6.2
